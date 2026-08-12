@@ -1,0 +1,24 @@
+{
+	"configurations": [
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:tokes}",
+			"name": "Debug Tokes",
+			"target": "Tokes",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug Tokes"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:tokes}",
+			"name": "Release Tokes",
+			"target": "Tokes",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release Tokes"
+		}
+	]
+}
