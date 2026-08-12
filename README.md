@@ -48,6 +48,21 @@ cp -R build/Tokes.app /Applications/
 
 Then enable "Launch at login" in Settings.
 
+### Tests
+
+```sh
+swift test
+```
+
+The suite lives in `Tests/TokesTests/`, fully separated from app code. It covers the API
+response mapping and date parsing, the HTTP layer (via a mock `URLProtocol` — no network),
+history persistence/pruning (temp directories), credential parsing/caching and the manual
+keychain item (a test-only service, never the real one), poller behavior (retry-on-401,
+429 backoff, staleness gating, in-flight coalescing — via injected mocks), the menu bar
+icon (including rasterized pixel checks of severity colors), chart downsampling, settings
+defaults, and hosting-controller smoke tests of the SwiftUI views. Tests touch no live
+credentials and make no network calls.
+
 ### Development notes (hard-won)
 
 - **macOS 26 mispositions status item popovers** (top edge above the screen). Tokes

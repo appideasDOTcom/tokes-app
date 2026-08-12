@@ -5,13 +5,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: StatusItemController?
     private var poller: UsagePoller?
 
-    /// Registers settings defaults and starts polling and the menu bar item.
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [
+    /// Registers factory defaults for user-configurable settings.
+    static func registerDefaults(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
             SettingsKeys.refreshInterval: 60.0,
             SettingsKeys.showLabel: false,
             SettingsKeys.credentialSource: CredentialSource.claudeCode.rawValue,
         ])
+    }
+
+    /// Registers settings defaults and starts polling and the menu bar item.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.registerDefaults()
 
         let state = AppState()
         let history = HistoryStore()

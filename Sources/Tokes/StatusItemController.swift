@@ -6,11 +6,14 @@ import SwiftUI
 /// debugLogging -bool true` is set. Unified log redacts our messages as
 /// <private>, so a plain file is the practical channel.
 enum DebugLog {
+    /// Log destination; overridable in tests.
+    static var fileURL = URL(fileURLWithPath: "/tmp/tokes-debug.log")
+
     /// Appends a timestamped line to the log file if debug logging is enabled.
     static func log(_ message: String) {
         guard UserDefaults.standard.bool(forKey: "debugLogging") else { return }
         let line = "\(Date()) \(message)\n"
-        let url = URL(fileURLWithPath: "/tmp/tokes-debug.log")
+        let url = fileURL
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -110,7 +113,7 @@ final class StatusItemController: NSObject {
     /// Three vertical bars, one per limit (Session, Weekly, Weekly <model>),
     /// filled bottom-up and colored by severity. Dynamic colors keep it
     /// legible in light and dark menu bars.
-    private static func makeIcon(limits: [UsageLimit]) -> NSImage {
+    static func makeIcon(limits: [UsageLimit]) -> NSImage {
         let barWidth: CGFloat = 5
         let gap: CGFloat = 3
         let barHeight: CGFloat = 16

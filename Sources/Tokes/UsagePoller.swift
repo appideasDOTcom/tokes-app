@@ -1,12 +1,27 @@
 import AppKit
 
+/// Abstraction over the usage client, injectable for tests.
+protocol UsageFetching {
+    func fetch(token: String) async throws -> UsageSnapshot
+}
+
+extension UsageClient: UsageFetching {}
+
+/// Abstraction over credential resolution, injectable for tests.
+protocol TokenProviding: AnyObject {
+    func accessToken() throws -> String
+    func invalidate()
+}
+
+extension CredentialsProvider: TokenProviding {}
+
 /// Polls the usage endpoint on a settings-driven interval, updating AppState
 /// and recording history samples.
 final class UsagePoller {
     private let state: AppState
     private let history: HistoryStore
-    private let client = UsageClient()
-    private let credentials = CredentialsProvider()
+    private let client: UsageFetching
+    private let credentials: TokenProviding
 
     private var timer: Timer?
     private var currentInterval: TimeInterval = 0
@@ -14,13 +29,17 @@ final class UsagePoller {
     private var lastRateLimitedAt: Date?
 
     /// Creates a poller that publishes into `state` and records samples to `history`.
-    init(state: AppState, history: HistoryStore) {
+    init(state: AppState, history: HistoryStore,
+         client: UsageFetching = UsageClient(),
+         credentials: TokenProviding = CredentialsProvider()) {
         self.state = state
         self.history = history
+        self.client = client
+        self.credentials = credentials
     }
 
     /// User-configured refresh interval in seconds, floored to 10.
-    private var configuredInterval: TimeInterval {
+    var configuredInterval: TimeInterval {
         let v = UserDefaults.standard.double(forKey: SettingsKeys.refreshInterval)
         return v >= 10 ? v : 60
     }
@@ -58,18 +77,20 @@ final class UsagePoller {
     }
 
     /// Refresh if the current snapshot is stale (used when the popover opens).
-    /// Called from the main thread.
-    func refreshIfStale(olderThan seconds: TimeInterval = 30) {
+    /// Called from the main thread; returns whether a refresh was triggered.
+    @discardableResult
+    func refreshIfStale(olderThan seconds: TimeInterval = 30) -> Bool {
         // Back off opportunistic refreshes after a 429; the timer keeps its
         // regular cadence.
         if let limited = lastRateLimitedAt, Date().timeIntervalSince(limited) < 90 {
-            return
+            return false
         }
         if let fetchedAt = state.snapshot?.fetchedAt,
            Date().timeIntervalSince(fetchedAt) <= seconds {
-            return
+            return false
         }
         refreshNow()
+        return true
     }
 
     /// (Re)creates the repeating poll timer at the configured interval.
@@ -101,7 +122,7 @@ final class UsagePoller {
     /// One poll: fetch, publish the snapshot, and record a history sample.
     /// On failure the last snapshot stays visible and a message is surfaced.
     @MainActor
-    private func tick() async {
+    func tick() async {
         guard !inFlight else { return }
         inFlight = true
         defer { inFlight = false }

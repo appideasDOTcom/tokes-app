@@ -15,9 +15,10 @@ final class HistoryStore {
         return e
     }()
 
-    /// Creates/opens the store under Application Support and loads retained samples.
-    init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Creates/opens the store (in Application Support by default) and loads
+    /// retained samples.
+    init(directory: URL? = nil) {
+        let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Tokes", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("history.jsonl")

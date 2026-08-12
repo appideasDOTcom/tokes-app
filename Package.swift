@@ -9,6 +9,12 @@ let package = Package(
             name: "Tokes",
             path: "Sources/Tokes",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(
+            name: "TokesTests",
+            dependencies: ["Tokes"],
+            path: "Tests/TokesTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

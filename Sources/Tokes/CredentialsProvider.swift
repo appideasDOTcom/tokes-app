@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// Credential-resolution failures, with user-facing guidance.
-enum CredentialError: LocalizedError {
+enum CredentialError: LocalizedError, Equatable {
     case notFound
     case denied
     case manualMissing
@@ -34,6 +34,9 @@ final class CredentialsProvider {
     private var cachedToken: String?
     private var cachedExpiry: Date?
 
+    /// Test seam: replaces credential lookup when set.
+    var loadTokenOverride: (() throws -> (String, Date?))?
+
     private var source: CredentialSource {
         CredentialSource(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.credentialSource) ?? "") ?? .claudeCode
     }
@@ -52,7 +55,12 @@ final class CredentialsProvider {
                 return token
             }
         }
-        let (token, expiry) = try loadToken()
+        let (token, expiry): (String, Date?)
+        if let load = loadTokenOverride {
+            (token, expiry) = try load()
+        } else {
+            (token, expiry) = try loadToken()
+        }
         cachedToken = token
         cachedExpiry = expiry
         return token
@@ -122,7 +130,7 @@ final class CredentialsProvider {
     }
 
     /// Extracts the access token and expiry from Claude Code's credentials JSON.
-    private static func parseClaudeCredentials(_ data: Data) -> (String, Date?)? {
+    static func parseClaudeCredentials(_ data: Data) -> (String, Date?)? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty
@@ -137,11 +145,11 @@ final class CredentialsProvider {
     // MARK: - Manual token storage (Tokes' own keychain item)
 
     /// Reads the manually saved token from Tokes' own keychain item.
-    static func readManualToken() -> String? {
+    static func readManualToken(service: String = manualService, account: String = manualAccount) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: manualService,
-            kSecAttrAccount as String: manualAccount,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -153,24 +161,24 @@ final class CredentialsProvider {
 
     /// Replaces the stored manual token; returns whether the save succeeded.
     @discardableResult
-    static func saveManualToken(_ token: String) -> Bool {
-        deleteManualToken()
+    static func saveManualToken(_ token: String, service: String = manualService, account: String = manualAccount) -> Bool {
+        deleteManualToken(service: service, account: account)
         guard !token.isEmpty, let data = token.data(using: .utf8) else { return false }
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: manualService,
-            kSecAttrAccount as String: manualAccount,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecValueData as String: data,
         ]
         return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
     /// Removes the manual token's keychain item.
-    static func deleteManualToken() {
+    static func deleteManualToken(service: String = manualService, account: String = manualAccount) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: manualService,
-            kSecAttrAccount as String: manualAccount,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
         ]
         SecItemDelete(query as CFDictionary)
     }

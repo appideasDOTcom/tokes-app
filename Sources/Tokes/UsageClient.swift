@@ -1,7 +1,7 @@
 import Foundation
 
 /// Usage-endpoint failures, with user-facing descriptions.
-enum UsageError: LocalizedError {
+enum UsageError: LocalizedError, Equatable {
     case unauthorized
     case http(Int)
     case decode(String)
@@ -23,6 +23,9 @@ enum UsageError: LocalizedError {
 struct UsageClient {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    /// Session used for requests; injectable for tests.
+    var session: URLSession = .shared
+
     /// Fetches current usage with the given OAuth token and returns a mapped snapshot.
     func fetch(token: String) async throws -> UsageSnapshot {
         var request = URLRequest(url: Self.endpoint)
@@ -31,11 +34,16 @@ struct UsageClient {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw UsageError.http(0) }
         if http.statusCode == 401 || http.statusCode == 403 { throw UsageError.unauthorized }
         guard http.statusCode == 200 else { throw UsageError.http(http.statusCode) }
 
+        return try Self.snapshot(from: data)
+    }
+
+    /// Decodes a usage response body into a snapshot.
+    static func snapshot(from data: Data) throws -> UsageSnapshot {
         let decoded: APIResponse
         do {
             decoded = try JSONDecoder().decode(APIResponse.self, from: data)
@@ -43,7 +51,7 @@ struct UsageClient {
             throw UsageError.decode(error.localizedDescription)
         }
 
-        let limits = Self.mapLimits(decoded)
+        let limits = mapLimits(decoded)
         guard !limits.isEmpty else { throw UsageError.decode("no limits in response") }
         return UsageSnapshot(limits: limits, fetchedAt: Date())
     }
