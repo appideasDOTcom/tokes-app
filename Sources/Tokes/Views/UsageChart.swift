@@ -1,6 +1,7 @@
 import Charts
 import SwiftUI
 
+/// A single (time, percent) chart sample.
 struct ChartPoint: Identifiable {
     let date: Date
     let value: Double
@@ -17,6 +18,8 @@ struct UsageChart: View {
     let samples: [UsageSample]
     let currentPercent: Double
 
+    /// This limit's samples within the window, downsampled, plus a "now" point
+    /// so the chart is alive from the first poll.
     private var points: [ChartPoint] {
         let cutoff = Date().addingTimeInterval(-window)
         var pts = samples.compactMap { sample -> ChartPoint? in
@@ -24,7 +27,6 @@ struct UsageChart: View {
             return ChartPoint(date: sample.t, value: v)
         }
         pts = Self.downsample(pts, maxCount: 240)
-        // Always include "now" so the chart is alive from the first poll.
         pts.append(ChartPoint(date: Date(), value: currentPercent))
         return pts
     }

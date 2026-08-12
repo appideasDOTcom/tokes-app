@@ -1,5 +1,6 @@
 import Foundation
 
+/// Usage-endpoint failures, with user-facing descriptions.
 enum UsageError: LocalizedError {
     case unauthorized
     case http(Int)
@@ -22,6 +23,7 @@ enum UsageError: LocalizedError {
 struct UsageClient {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    /// Fetches current usage with the given OAuth token and returns a mapped snapshot.
     func fetch(token: String) async throws -> UsageSnapshot {
         var request = URLRequest(url: Self.endpoint)
         request.timeoutInterval = 15
@@ -96,6 +98,7 @@ struct UsageClient {
     }
 }
 
+/// Parses the API's ISO 8601 timestamps, tolerating fractional-second variants.
 enum APIDate {
     private static let fractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -115,6 +118,7 @@ enum APIDate {
         return f
     }()
 
+    /// Returns the parsed date, or nil if no known format matches.
     static func parse(_ s: String?) -> Date? {
         guard let s else { return nil }
         return fractional.date(from: s) ?? plain.date(from: s) ?? micro.date(from: s)
@@ -123,17 +127,20 @@ enum APIDate {
 
 // MARK: - Wire format
 
+/// Top-level usage response.
 private struct APIResponse: Decodable {
     let limits: [APILimit]?
     let five_hour: APIWindow?
     let seven_day: APIWindow?
 }
 
+/// Legacy flat usage window (fallback when `limits` is absent).
 private struct APIWindow: Decodable {
     let utilization: Double?
     let resets_at: String?
 }
 
+/// One entry of the `limits` array.
 private struct APILimit: Decodable {
     let kind: String?
     let group: String?
@@ -143,10 +150,12 @@ private struct APILimit: Decodable {
     let scope: APIScope?
 }
 
+/// Model scope of a `weekly_scoped` limit.
 private struct APIScope: Decodable {
     let model: APIModel?
 }
 
+/// Scoped model descriptor.
 private struct APIModel: Decodable {
     let display_name: String?
 }

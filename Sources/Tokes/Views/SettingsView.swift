@@ -1,6 +1,8 @@
 import ServiceManagement
 import SwiftUI
 
+/// Settings form: credential source, connection test, refresh interval,
+/// menu bar label, and launch at login.
 struct SettingsView: View {
     let onCredentialsChanged: () -> Void
 
@@ -97,6 +99,7 @@ struct SettingsView: View {
         }
     }
 
+    /// Fetches usage once with the selected credentials and reports the result inline.
     private func testConnection() {
         testing = true
         testResult = nil

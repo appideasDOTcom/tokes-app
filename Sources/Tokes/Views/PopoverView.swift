@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// Popover content: header actions, optional error banner, a section per limit,
+/// and a footer.
 struct PopoverView: View {
     @ObservedObject var state: AppState
     let onHoverChanged: (Bool) -> Void
@@ -33,6 +35,7 @@ struct PopoverView: View {
         .onHover(perform: onHoverChanged)
     }
 
+    /// Title row with refresh, settings, and quit buttons.
     private var header: some View {
         HStack(spacing: 8) {
             Text("Claude Usage")
@@ -56,6 +59,7 @@ struct PopoverView: View {
         }
     }
 
+    /// "Updated N ago" caption and app name.
     private var footer: some View {
         HStack {
             if let snapshot = state.snapshot {
@@ -72,6 +76,7 @@ struct PopoverView: View {
         }
     }
 
+    /// Inline warning banner for fetch errors.
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -88,6 +93,7 @@ struct PopoverView: View {
     }
 }
 
+/// One limit: severity dot, label, percent, history chart, and reset countdown.
 struct LimitSection: View {
     let limit: UsageLimit
     let samples: [UsageSample]

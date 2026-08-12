@@ -1,6 +1,7 @@
 import Foundation
 import Security
 
+/// Credential-resolution failures, with user-facing guidance.
 enum CredentialError: LocalizedError {
     case notFound
     case denied
@@ -22,9 +23,9 @@ enum CredentialError: LocalizedError {
 ///
 /// "Auto" mode reads the credentials Claude Code maintains, trying in order:
 ///   1. ~/.claude/.credentials.json (no keychain prompt needed when present)
-///   2. The "Claude Code-credentials" keychain item via the Security framework
-///   3. /usr/bin/security as a fallback (its keychain approval survives
-///      rebuilds of an ad-hoc-signed Tokes.app)
+///   2. The "Claude Code-credentials" keychain item via /usr/bin/security
+///      (its keychain approval survives rebuilds of an ad-hoc-signed Tokes.app)
+///   3. The same keychain item via the Security framework
 final class CredentialsProvider {
     static let manualService = "com.appideas.tokes"
     static let manualAccount = "oauth-token"
@@ -37,15 +38,16 @@ final class CredentialsProvider {
         CredentialSource(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.credentialSource) ?? "") ?? .claudeCode
     }
 
+    /// Drops the cached token so the next poll re-reads credentials.
     func invalidate() {
         cachedToken = nil
         cachedExpiry = nil
     }
 
+    /// Returns an OAuth token, cached until 60 s before expiry. Tokens with
+    /// unknown expiry are re-read every call so rotations are picked up.
     func accessToken() throws -> String {
         if let token = cachedToken {
-            // Reuse until 60s before expiry; unknown expiry gets no caching so
-            // a refresh by Claude Code is picked up on the next poll.
             if let expiry = cachedExpiry, expiry.timeIntervalSinceNow > 60 {
                 return token
             }
@@ -56,6 +58,7 @@ final class CredentialsProvider {
         return token
     }
 
+    /// Reads a token from the configured source (manual keychain item or Claude Code).
     private func loadToken() throws -> (String, Date?) {
         switch source {
         case .manual:
@@ -68,6 +71,8 @@ final class CredentialsProvider {
         }
     }
 
+    /// Reads Claude Code's token: credentials file, then security CLI, then
+    /// Security framework.
     static func loadClaudeCodeToken() throws -> (String, Date?) {
         if let data = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/.credentials.json")),
@@ -97,6 +102,7 @@ final class CredentialsProvider {
         throw denied ? CredentialError.denied : CredentialError.notFound
     }
 
+    /// Reads the keychain item via /usr/bin/security, whose approval survives rebuilds.
     private static func securityCLIFallback() -> (String, Date?)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -115,6 +121,7 @@ final class CredentialsProvider {
         return parseClaudeCredentials(data)
     }
 
+    /// Extracts the access token and expiry from Claude Code's credentials JSON.
     private static func parseClaudeCredentials(_ data: Data) -> (String, Date?)? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
@@ -129,6 +136,7 @@ final class CredentialsProvider {
 
     // MARK: - Manual token storage (Tokes' own keychain item)
 
+    /// Reads the manually saved token from Tokes' own keychain item.
     static func readManualToken() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -143,6 +151,7 @@ final class CredentialsProvider {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Replaces the stored manual token; returns whether the save succeeded.
     @discardableResult
     static func saveManualToken(_ token: String) -> Bool {
         deleteManualToken()
@@ -156,6 +165,7 @@ final class CredentialsProvider {
         return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
+    /// Removes the manual token's keychain item.
     static func deleteManualToken() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

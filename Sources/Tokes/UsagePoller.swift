@@ -13,16 +13,19 @@ final class UsagePoller {
     private var inFlight = false
     private var lastRateLimitedAt: Date?
 
+    /// Creates a poller that publishes into `state` and records samples to `history`.
     init(state: AppState, history: HistoryStore) {
         self.state = state
         self.history = history
     }
 
+    /// User-configured refresh interval in seconds, floored to 10.
     private var configuredInterval: TimeInterval {
         let v = UserDefaults.standard.double(forKey: SettingsKeys.refreshInterval)
         return v >= 10 ? v : 60
     }
 
+    /// Schedules the timer, polls immediately, and observes wake and settings changes.
     func start() {
         schedule()
         refreshNow()
@@ -33,6 +36,7 @@ final class UsagePoller {
             self, selector: #selector(defaultsChanged), name: UserDefaults.didChangeNotification, object: nil)
     }
 
+    /// Invalidates the timer and removes observers.
     func stop() {
         timer?.invalidate()
         timer = nil
@@ -46,6 +50,7 @@ final class UsagePoller {
         refreshNow()
     }
 
+    /// Triggers an immediate poll on the main actor.
     func refreshNow() {
         Task { @MainActor in
             await self.tick()
@@ -67,6 +72,7 @@ final class UsagePoller {
         refreshNow()
     }
 
+    /// (Re)creates the repeating poll timer at the configured interval.
     private func schedule() {
         currentInterval = configuredInterval
         timer?.invalidate()
@@ -78,19 +84,22 @@ final class UsagePoller {
         timer = t
     }
 
+    /// Polls shortly after wake, giving the network a moment to reconnect.
     @objc private func didWake() {
-        // Give the network a moment to come back after sleep.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             self?.refreshNow()
         }
     }
 
+    /// Reschedules the timer when the refresh-interval setting changes.
     @objc private func defaultsChanged() {
         if configuredInterval != currentInterval {
             DispatchQueue.main.async { [weak self] in self?.schedule() }
         }
     }
 
+    /// One poll: fetch, publish the snapshot, and record a history sample.
+    /// On failure the last snapshot stays visible and a message is surfaced.
     @MainActor
     private func tick() async {
         guard !inFlight else { return }
@@ -118,12 +127,13 @@ final class UsagePoller {
         }
     }
 
+    /// Fetches usage, re-resolving credentials once on 401 in case Claude Code
+    /// rotated the token.
     private func fetchWithRetry() async throws -> UsageSnapshot {
         do {
             let token = try credentials.accessToken()
             return try await client.fetch(token: token)
         } catch UsageError.unauthorized {
-            // The token may have been rotated by Claude Code — re-read once.
             credentials.invalidate()
             let token = try credentials.accessToken()
             return try await client.fetch(token: token)

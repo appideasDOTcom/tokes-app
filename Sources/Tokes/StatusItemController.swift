@@ -6,6 +6,7 @@ import SwiftUI
 /// debugLogging -bool true` is set. Unified log redacts our messages as
 /// <private>, so a plain file is the practical channel.
 enum DebugLog {
+    /// Appends a timestamped line to the log file if debug logging is enabled.
     static func log(_ message: String) {
         guard UserDefaults.standard.bool(forKey: "debugLogging") else { return }
         let line = "\(Date()) \(message)\n"
@@ -37,6 +38,7 @@ final class StatusItemController: NSObject {
     private var hideWork: DispatchWorkItem?
     private var clickMonitors: [Any] = []
 
+    /// Builds the status item, popover, and state subscriptions.
     init(state: AppState, poller: UsagePoller) {
         self.state = state
         self.poller = poller
@@ -76,6 +78,7 @@ final class StatusItemController: NSObject {
 
     // MARK: - Menu bar rendering
 
+    /// Redraws the icon, optional percent label, and tooltip from a snapshot.
     private func updateButton(with snapshot: UsageSnapshot?) {
         guard let button = statusItem.button else { return }
         let limits = snapshot?.limits ?? []
@@ -140,6 +143,7 @@ final class StatusItemController: NSObject {
     // Explicit selector names: on an NSObject owner (not NSResponder) Swift
     // would otherwise export these as mouseEnteredWith:/mouseExitedWith: and
     // the tracking area's messages would be dropped silently.
+    /// Pointer entered the status item: open the popover after a short delay.
     @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
         hoverInButton = true
         hideWork?.cancel()
@@ -150,12 +154,14 @@ final class StatusItemController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
+    /// Pointer left the status item: schedule a close.
     @objc(mouseExited:) func mouseExited(with event: NSEvent) {
         hoverInButton = false
         showWork?.cancel()
         scheduleHide()
     }
 
+    /// Pointer entered/left the popover: cancel or schedule the close.
     private func popoverHoverChanged(_ inside: Bool) {
         hoverInPopover = inside
         if inside {
@@ -173,6 +179,7 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Closes the popover after a grace period unless pinned or still hovered.
     private func scheduleHide() {
         guard !pinned else { return }
         hideWork?.cancel()
@@ -184,6 +191,7 @@ final class StatusItemController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
+    /// Shows the popover under the status item, refreshing stale data first.
     private func showPopover() {
         guard let button = statusItem.button, !popover.isShown else { return }
         poller.refreshIfStale()
@@ -213,6 +221,7 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Closes the popover, removes click monitors, and hands focus back.
     private func closePopover() {
         pinned = false
         removeClickMonitors()
@@ -228,6 +237,7 @@ final class StatusItemController: NSObject {
 
     // MARK: - Click handling
 
+    /// Left click pins/unpins the popover; right click shows the context menu.
     @objc private func statusButtonClicked() {
         // currentEvent is nil for accessibility (AXPress) activation;
         // treat that like a left click.
@@ -272,6 +282,7 @@ final class StatusItemController: NSObject {
         if let local { clickMonitors.append(local) }
     }
 
+    /// Removes the outside-click monitors.
     private func removeClickMonitors() {
         clickMonitors.forEach { NSEvent.removeMonitor($0) }
         clickMonitors.removeAll()
@@ -279,6 +290,7 @@ final class StatusItemController: NSObject {
 
     // MARK: - Context menu
 
+    /// Shows the right-click menu (Refresh / Settings / Quit) via a transient statusItem.menu.
     private func showContextMenu() {
         let menu = NSMenu()
         let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refreshAction), keyEquivalent: "")
@@ -295,16 +307,19 @@ final class StatusItemController: NSObject {
         statusItem.menu = nil
     }
 
+    /// Context-menu action: poll now.
     @objc private func refreshAction() {
         poller.refreshNow()
     }
 
+    /// Context-menu action: open Settings.
     @objc private func settingsAction() {
         openSettings()
     }
 
     // MARK: - Settings window
 
+    /// Opens the Settings window, creating it on first use.
     func openSettings() {
         closePopover()
         if settingsWindow == nil {

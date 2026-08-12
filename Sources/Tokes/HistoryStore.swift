@@ -15,6 +15,7 @@ final class HistoryStore {
         return e
     }()
 
+    /// Creates/opens the store under Application Support and loads retained samples.
     init() {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Tokes", isDirectory: true)
@@ -23,6 +24,7 @@ final class HistoryStore {
         load()
     }
 
+    /// Reads samples from disk, pruning to the retention window and sorting by time.
     private func load() {
         guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
         let decoder = JSONDecoder()
@@ -37,6 +39,7 @@ final class HistoryStore {
         rewrite()
     }
 
+    /// Records a sample in memory and appends it to the JSONL file.
     func append(_ sample: UsageSample) {
         samples.append(sample)
         guard let data = try? encoder.encode(sample),
