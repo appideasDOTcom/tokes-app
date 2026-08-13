@@ -68,21 +68,31 @@ final class StatusItemController: NSObject {
             onQuit: { NSApp.terminate(nil) }))
 
         state.$snapshot
+            .combineLatest(state.$errorMessage)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in self?.updateButton(with: snapshot) }
+            .sink { [weak self] snapshot, error in
+                self?.updateButton(with: snapshot, hasError: error != nil)
+            }
             .store(in: &cancellables)
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateButton(with: self?.state.snapshot) }
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.updateButton(with: self.state.snapshot,
+                                  hasError: self.state.errorMessage != nil)
+            }
             .store(in: &cancellables)
 
-        updateButton(with: nil)
+        updateButton(with: nil, hasError: false)
     }
 
     // MARK: - Menu bar rendering
 
     /// Redraws the icon, optional percent label, and tooltip from a snapshot.
-    private func updateButton(with snapshot: UsageSnapshot?) {
+    /// Label color signals state: red when a limit is exhausted (blocking
+    /// further queries), orange while polls are failing (numbers may be
+    /// stale), normal otherwise.
+    private func updateButton(with snapshot: UsageSnapshot?, hasError: Bool) {
         guard let button = statusItem.button else { return }
         let limits = snapshot?.limits ?? []
         button.image = Self.makeIcon(limits: limits)
@@ -90,11 +100,14 @@ final class StatusItemController: NSObject {
 
         let showLabel = UserDefaults.standard.bool(forKey: SettingsKeys.showLabel)
         if showLabel, let top = limits.max(by: { $0.percent < $1.percent }) {
+            let labelColor: NSColor = top.percent >= 100 ? .systemRed
+                : hasError ? .systemOrange
+                : .labelColor
             button.attributedTitle = NSAttributedString(
                 string: " \(Int(top.percent.rounded()))%",
                 attributes: [
                     .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                    .foregroundColor: NSColor.labelColor,
+                    .foregroundColor: labelColor,
                     .baselineOffset: 0.5,
                 ])
         } else {
