@@ -90,18 +90,3 @@ menu bar icon (including rasterized pixel checks of severity colors and the prov
 divider), chart downsampling, settings defaults, and hosting-controller smoke tests of
 the SwiftUI views. Tests touch no live credentials and make no network calls.
 
-### Development notes (hard-won)
-
-- **macOS 26 mispositions status item popovers** (top edge above the screen). Tokes
-  repositions the popover window explicitly after `show()` — see
-  `StatusItemController.repositionPopoverWindow()`.
-- **Popover buttons in an inactive accessory app swallow the first click.** SwiftUI's
-  internal hit-test views don't accept first mouse, so Tokes activates the app when the
-  pointer enters the popover (and on click-to-pin), then hands focus back on close.
-- **`NSTrackingArea` owner selectors**: on a plain `NSObject` owner, Swift exports
-  `mouseEntered(with:)` as `mouseEnteredWith:` — the tracking area's `mouseEntered:` message
-  is dropped silently. The handlers use explicit `@objc(mouseEntered:)` names.
-- **Debug logging**: `defaults write com.appideas.tokes debugLogging -bool true` appends to
-  `/tmp/tokes-debug.log` (unified log redacts dynamic NSLog content as `<private>`).
-- If the usage endpoint returns **HTTP 429**, Tokes keeps the last snapshot, shows a banner,
-  and backs off opportunistic refreshes for 90 s (the timer cadence continues).
