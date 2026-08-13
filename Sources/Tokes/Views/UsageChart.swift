@@ -63,7 +63,7 @@ struct UsageChart: View {
                 AxisGridLine().foregroundStyle(.quaternary)
                 AxisValueLabel()
                     .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
         }
         .chartXAxis {
@@ -72,11 +72,11 @@ struct UsageChart: View {
                 if isSession {
                     AxisValueLabel(format: .dateTime.hour().minute())
                         .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 } else {
                     AxisValueLabel(format: .dateTime.weekday(.abbreviated))
                         .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
