@@ -48,6 +48,15 @@ The APIs only report *current* utilization, so Tokes records a local sample on e
 (`~/Library/Application Support/Tokes/history.jsonl`, pruned to 8 days) to draw the charts.
 Charts fill in as the app runs.
 
+### Install via Homebrew
+
+```sh
+brew install appideasDOTcom/tap/tokes
+```
+
+Until builds are notarized, right-click Tokes.app → Open on first launch (or add
+`--no-quarantine` to the install command).
+
 ### Build & run
 
 Requires Xcode (Swift 6 toolchain), targets macOS 14+.

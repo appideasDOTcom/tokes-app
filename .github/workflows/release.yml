@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Info.plist version
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' scripts/Info.plist)
+          [[ "${GITHUB_REF_NAME}" == "v${VERSION}" ]] || {
+            echo "Tag ${GITHUB_REF_NAME} does not match Info.plist version v${VERSION}" >&2
+            exit 1
+          }
+
+      - name: Run tests
+        run: swift test
+
+      # Ad-hoc signed for now. When Developer ID signing lands, import the
+      # cert from repo secrets here and pass --sign/--notarize to release.sh.
+      - name: Build release zip
+        run: ./scripts/release.sh
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="build/Tokes-${VERSION}.zip"
+          SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          gh release create "${GITHUB_REF_NAME}" "$ZIP" \
+            --title "Tokes ${GITHUB_REF_NAME}" \
+            --notes "Cask sha256: \`${SHA}\`"
