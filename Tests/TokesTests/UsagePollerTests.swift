@@ -83,7 +83,7 @@ final class UsagePollerTests: XCTestCase {
         let old = TestFixtures.snapshot(percents: ["session": 10],
                                         fetchedAt: Date().addingTimeInterval(-600))
         state.snapshot = old
-        client.results = [.failure(UsageError.http(429))]
+        client.results = [.failure(UsageError.rateLimited(retryAfter: nil))]
 
         await poller.tick()
 
@@ -92,6 +92,33 @@ final class UsagePollerTests: XCTestCase {
         XCTAssertTrue(state.samples.isEmpty)
         // Opportunistic refreshes are suppressed during the 429 backoff window.
         XCTAssertFalse(poller.refreshIfStale(olderThan: 0))
+    }
+
+    @MainActor
+    func testTimerTicksSkipClaudeDuringBackoff() async {
+        client.results = [.failure(UsageError.rateLimited(retryAfter: nil))]
+        await poller.tick()
+        XCTAssertEqual(client.fetchCount, 1)
+
+        // Next tick lands inside the backoff window: no request, banner stays.
+        await poller.tick()
+        XCTAssertEqual(client.fetchCount, 1)
+        XCTAssertEqual(state.errorMessage, "Usage API rate-limited — retrying automatically.")
+    }
+
+    @MainActor
+    func testExpiredRetryAfterResumesPollingAndClearsBackoff() async {
+        let snap = TestFixtures.snapshot(percents: ["session": 5])
+        client.results = [.failure(UsageError.rateLimited(retryAfter: 0)), .success(snap)]
+
+        await poller.tick()
+        // retryAfter 0 → window already over; the next tick fetches and recovers.
+        await poller.tick()
+
+        XCTAssertEqual(client.fetchCount, 2)
+        XCTAssertNil(state.errorMessage)
+        XCTAssertEqual(state.snapshot, snap)
+        XCTAssertTrue(poller.refreshIfStale(olderThan: 0))
     }
 
     @MainActor

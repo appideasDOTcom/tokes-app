@@ -14,7 +14,8 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
 - **Debug logging**: `defaults write com.appideas.tokes debugLogging -bool true` appends to
   `/tmp/tokes-debug.log` (unified log redacts dynamic NSLog content as `<private>`).
 - If the usage endpoint returns **HTTP 429**, Tokes keeps the last snapshot, shows a banner,
-  and backs off opportunistic refreshes for 90 s (the timer cadence continues).
+  and skips Claude polls entirely until the backoff passes: `Retry-After` header when
+  present, else 90 s doubling per consecutive 429 (cap 15 min). Copilot polling continues.
 
 ## Rules
 

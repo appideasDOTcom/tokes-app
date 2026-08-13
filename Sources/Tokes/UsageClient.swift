@@ -3,6 +3,7 @@ import Foundation
 /// Usage-endpoint failures, with user-facing descriptions.
 enum UsageError: LocalizedError, Equatable {
     case unauthorized
+    case rateLimited(retryAfter: TimeInterval?)
     case http(Int)
     case decode(String)
 
@@ -10,6 +11,8 @@ enum UsageError: LocalizedError, Equatable {
         switch self {
         case .unauthorized:
             return "Not authorized — open Claude Code to refresh your login, or set a token in Settings."
+        case .rateLimited:
+            return "Usage API rate-limited — retrying automatically."
         case .http(let code):
             return "Usage API returned HTTP \(code)."
         case .decode(let detail):
@@ -37,6 +40,10 @@ struct UsageClient {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw UsageError.http(0) }
         if http.statusCode == 401 || http.statusCode == 403 { throw UsageError.unauthorized }
+        if http.statusCode == 429 {
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+            throw UsageError.rateLimited(retryAfter: retryAfter)
+        }
         guard http.statusCode == 200 else { throw UsageError.http(http.statusCode) }
 
         return try Self.snapshot(from: data)

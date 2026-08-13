@@ -149,8 +149,22 @@ final class UsageClientHTTPTests: XCTestCase {
     }
 
     func testRateLimitAndServerErrors() async {
-        await assertFetchThrows(.http(429), status: 429)
+        await assertFetchThrows(.rateLimited(retryAfter: nil), status: 429)
         await assertFetchThrows(.http(500), status: 500)
+    }
+
+    func testRateLimitParsesRetryAfterHeader() async {
+        MockURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil,
+                             headerFields: ["Retry-After": "30"])!,
+             Data())
+        }
+        do {
+            _ = try await UsageClient(session: mockSession()).fetch(token: "t")
+            XCTFail("expected rateLimited")
+        } catch {
+            XCTAssertEqual(error as? UsageError, .rateLimited(retryAfter: 30))
+        }
     }
 
     func testMalformedBodyOn200ThrowsDecode() async {

@@ -37,7 +37,10 @@ final class UsagePoller {
     private var currentInterval: TimeInterval = 0
     private var currentCopilotEnabled = false
     private var inFlight = false
-    private var lastRateLimitedAt: Date?
+    /// While set and in the future, Claude polls are skipped entirely (429
+    /// backoff). Copilot polling is unaffected.
+    private var claudeBackoffUntil: Date?
+    private var rateLimitStreak = 0
 
     /// Creates a poller that publishes into `state` and records samples to `history`.
     init(state: AppState, history: HistoryStore,
@@ -102,9 +105,8 @@ final class UsagePoller {
     /// Called from the main thread; returns whether a refresh was triggered.
     @discardableResult
     func refreshIfStale(olderThan seconds: TimeInterval = 30) -> Bool {
-        // Back off opportunistic refreshes after a 429; the timer keeps its
-        // regular cadence.
-        if let limited = lastRateLimitedAt, Date().timeIntervalSince(limited) < 90 {
+        // No opportunistic refreshes during a 429 backoff.
+        if let until = claudeBackoffUntil, Date() < until {
             return false
         }
         if let fetchedAt = state.snapshot?.fetchedAt,
@@ -168,19 +170,29 @@ final class UsagePoller {
         switch claude {
         case .success(let fresh):
             anySuccess = true
+            rateLimitStreak = 0
+            claudeBackoffUntil = nil
             fetchedAt = fresh.fetchedAt
             limits += fresh.limits
             fresh.limits.forEach { freshValues[$0.id] = $0.percent }
         case .failure(let error):
             // Keep the last Claude limits visible; just surface the error.
             limits += previousLimits(for: .claude)
-            if case UsageError.http(429) = error {
-                lastRateLimitedAt = Date()
-                errors.append("Usage API rate-limited — retrying automatically.")
-            } else {
-                errors.append(error.localizedDescription)
+            if case UsageError.rateLimited(let retryAfter) = error {
+                rateLimitStreak += 1
+                // Honor Retry-After; otherwise 90 s doubling per consecutive
+                // 429, capped at 15 min.
+                let delay = retryAfter
+                    ?? min(90 * pow(2, Double(rateLimitStreak - 1)), 900)
+                claudeBackoffUntil = Date().addingTimeInterval(delay)
             }
+            errors.append(error.localizedDescription)
             DebugLog.log("Tokes: Claude tick failed: \(error)")
+        case nil:
+            // Backing off after a 429 — no request made; keep last limits
+            // and the banner until the window passes.
+            limits += previousLimits(for: .claude)
+            errors.append(UsageError.rateLimited(retryAfter: nil).localizedDescription ?? "")
         }
 
         if let copilot {
@@ -213,8 +225,10 @@ final class UsagePoller {
         state.snapshot?.limits.filter { $0.provider == provider } ?? []
     }
 
-    /// Claude fetch wrapped in a Result for concurrent merging.
-    private func claudeResult() async -> Result<UsageSnapshot, Error> {
+    /// Claude fetch wrapped in a Result for concurrent merging; nil while a
+    /// 429 backoff window is active (no request is made).
+    private func claudeResult() async -> Result<UsageSnapshot, Error>? {
+        if let until = claudeBackoffUntil, Date() < until { return nil }
         do {
             return .success(try await fetchWithRetry())
         } catch {

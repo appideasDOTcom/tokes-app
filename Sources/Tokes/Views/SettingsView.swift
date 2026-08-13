@@ -133,7 +133,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") — AI usage in your menu bar. Tracks the three Claude plan limits shown in Claude Code (Session, Weekly, and the weekly model-scoped limit), plus GitHub Copilot premium requests when enabled.")
+                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
