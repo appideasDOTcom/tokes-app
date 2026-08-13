@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsKeys.credentialSource: CredentialSource.claudeCode.rawValue,
             SettingsKeys.copilotEnabled: false,
             SettingsKeys.copilotCredentialSource: CopilotCredentialSource.editor.rawValue,
+            SettingsKeys.showScopedWeekly: true,
         ])
     }
 

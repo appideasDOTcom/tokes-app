@@ -17,5 +17,6 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: SettingsKeys.copilotEnabled))
         XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource),
                        CopilotCredentialSource.editor.rawValue)
+        XCTAssertTrue(defaults.bool(forKey: SettingsKeys.showScopedWeekly))
     }
 }

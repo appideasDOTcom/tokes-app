@@ -8,6 +8,7 @@ enum SettingsKeys {
     static let credentialSource = "credentialSource"
     static let copilotEnabled = "copilotEnabled"
     static let copilotCredentialSource = "copilotCredentialSource"
+    static let showScopedWeekly = "showScopedWeekly"
 }
 
 /// Source of the OAuth token: Claude Code's stored credentials or a manually pasted token.
@@ -68,6 +69,12 @@ struct UsageLimit: Identifiable, Equatable {
     /// Time span the limit's chart displays: 6 hours for session, 7 days otherwise.
     var chartWindow: TimeInterval {
         isSession ? 6 * 3600 : 7 * 24 * 3600
+    }
+
+    /// true for the per-model weekly bucket (e.g. "Weekly Fable"), which not
+    /// every plan reports and the Settings toggle can hide.
+    var isScopedWeekly: Bool {
+        id.hasPrefix("weekly_scoped")
     }
 }
 

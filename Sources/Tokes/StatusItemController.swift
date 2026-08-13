@@ -94,8 +94,9 @@ final class StatusItemController: NSObject {
     /// stale), normal otherwise.
     private func updateButton(with snapshot: UsageSnapshot?, hasError: Bool) {
         guard let button = statusItem.button else { return }
-        let limits = snapshot?.limits ?? []
-        button.image = Self.makeIcon(limits: limits)
+        let showScoped = UserDefaults.standard.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
+        let limits = (snapshot?.limits ?? []).filter { showScoped || !$0.isScopedWeekly }
+        button.image = Self.makeIcon(limits: limits, claudeTracks: showScoped ? 3 : 2)
         button.imagePosition = .imageLeading
 
         let showLabel = UserDefaults.standard.bool(forKey: SettingsKeys.showLabel)
@@ -125,9 +126,10 @@ final class StatusItemController: NSObject {
     }
 
     /// Vertical bars, one per limit, filled bottom-up and colored by severity.
-    /// Claude always reserves three tracks; Copilot bars sit behind a thin
-    /// divider so the provider groups read separately at a glance.
-    static func makeIcon(limits: [UsageLimit]) -> NSImage {
+    /// Claude reserves `claudeTracks` tracks (three, or two when the scoped
+    /// weekly limit is hidden); Copilot bars sit behind a thin divider so the
+    /// provider groups read separately at a glance.
+    static func makeIcon(limits: [UsageLimit], claudeTracks: Int = 3) -> NSImage {
         let barWidth: CGFloat = 5
         let gap: CGFloat = 3
         let barHeight: CGFloat = 16
@@ -135,7 +137,7 @@ final class StatusItemController: NSObject {
 
         let claude = limits.filter { $0.provider == .claude }
         let copilot = limits.filter { $0.provider == .copilot }
-        let claudeSlots: [UsageLimit?] = (0..<max(claude.count, 3)).map { $0 < claude.count ? claude[$0] : nil }
+        let claudeSlots: [UsageLimit?] = (0..<max(claude.count, claudeTracks)).map { $0 < claude.count ? claude[$0] : nil }
 
         func sectionWidth(_ n: Int) -> CGFloat { CGFloat(n) * barWidth + CGFloat(n - 1) * gap }
         let width = 2 + sectionWidth(claudeSlots.count)

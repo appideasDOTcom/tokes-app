@@ -72,6 +72,14 @@ final class UsageLimitTests: XCTestCase {
         XCTAssertEqual(TestFixtures.limit(isSession: true).chartWindow, 6 * 3600)
         XCTAssertEqual(TestFixtures.limit(isSession: false).chartWindow, 7 * 24 * 3600)
     }
+
+    func testIsScopedWeeklyMatchesOnlyModelScopedIds() {
+        XCTAssertTrue(TestFixtures.limit(id: "weekly_scoped:Fable").isScopedWeekly)
+        XCTAssertTrue(TestFixtures.limit(id: "weekly_scoped:Model").isScopedWeekly)
+        XCTAssertFalse(TestFixtures.limit(id: "session").isScopedWeekly)
+        XCTAssertFalse(TestFixtures.limit(id: "weekly_all").isScopedWeekly)
+        XCTAssertFalse(TestFixtures.copilotLimit().isScopedWeekly)
+    }
 }
 
 final class CredentialSourceTests: XCTestCase {

@@ -4,6 +4,7 @@ import SwiftUI
 /// and a footer.
 struct PopoverView: View {
     @ObservedObject var state: AppState
+    @AppStorage(SettingsKeys.showScopedWeekly) private var showScopedWeekly = true
     let onHoverChanged: (Bool) -> Void
     let onSettings: () -> Void
     let onRefresh: () -> Void
@@ -36,8 +37,9 @@ struct PopoverView: View {
     /// Limit sections, grouped under provider headings when more than one
     /// provider is reporting so the two services read separately.
     private func limitGroups(_ snapshot: UsageSnapshot) -> some View {
+        let limits = snapshot.limits.filter { showScopedWeekly || !$0.isScopedWeekly }
         let providers = UsageProvider.allCases.filter { p in
-            snapshot.limits.contains { $0.provider == p }
+            limits.contains { $0.provider == p }
         }
         return ForEach(providers, id: \.self) { provider in
             VStack(alignment: .leading, spacing: 12) {
@@ -50,7 +52,7 @@ struct PopoverView: View {
                         .kerning(0.8)
                         .foregroundStyle(.secondary)
                 }
-                ForEach(snapshot.limits.filter { $0.provider == provider }) { limit in
+                ForEach(limits.filter { $0.provider == provider }) { limit in
                     LimitSection(limit: limit, samples: state.samples)
                 }
             }

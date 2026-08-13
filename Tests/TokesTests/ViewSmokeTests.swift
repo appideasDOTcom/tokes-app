@@ -58,6 +58,19 @@ final class ViewSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testPopoverViewHidesScopedWeeklyWhenDisabled() {
+        UserDefaults.standard.set(false, forKey: SettingsKeys.showScopedWeekly)
+        defer { UserDefaults.standard.removeObject(forKey: SettingsKeys.showScopedWeekly) }
+        let hidden = popover(state: makeState())
+
+        UserDefaults.standard.removeObject(forKey: SettingsKeys.showScopedWeekly)
+        let full = popover(state: makeState())
+
+        // Dropping one 64pt-chart section loses real height.
+        XCTAssertLessThan(hidden.fittingSize.height, full.fittingSize.height - 60)
+    }
+
+    @MainActor
     func testPopoverViewRendersConnectingState() {
         let view = popover(state: makeState(withSnapshot: false))
         XCTAssertGreaterThan(view.fittingSize.height, 40)

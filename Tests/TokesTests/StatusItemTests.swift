@@ -19,6 +19,15 @@ final class StatusIconTests: XCTestCase {
         XCTAssertEqual(StatusItemController.makeIcon(limits: []).size.width, 23)
     }
 
+    func testIconReservesTwoTracksWhenScopedWeeklyHidden() {
+        let icon = StatusItemController.makeIcon(limits: [
+            TestFixtures.limit(id: "session", percent: 10),
+            TestFixtures.limit(id: "weekly_all", percent: 50),
+        ], claudeTracks: 2)
+        XCTAssertEqual(icon.size.width, 15)  // 2×5pt bars + 1×3pt gap + 2pt margin
+        XCTAssertEqual(StatusItemController.makeIcon(limits: [], claudeTracks: 2).size.width, 15)
+    }
+
     func testIconGrowsWithExtraLimits() {
         let icon = StatusItemController.makeIcon(limits: (0..<4).map {
             TestFixtures.limit(id: "l\($0)", percent: 10)

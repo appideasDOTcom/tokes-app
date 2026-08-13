@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.claudeCode.rawValue
     @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
     @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.editor.rawValue
+    @AppStorage(SettingsKeys.showScopedWeekly) private var showScopedWeekly = true
 
     @State private var manualToken = ""
     @State private var tokenSaved = false
@@ -118,6 +119,7 @@ struct SettingsView: View {
                     Text("15 minutes").tag(900.0)
                 }
                 Toggle("Show highest usage as text in menu bar", isOn: $showLabel)
+                Toggle("Show model-specific weekly limit (e.g. Weekly Fable)", isOn: $showScopedWeekly)
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enable in
                         do {
