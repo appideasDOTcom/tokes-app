@@ -2,7 +2,7 @@
 # (github.com/appideasDOTcom/homebrew-tap). After each release, bump
 # `version` and `sha256` (printed in the GitHub release notes).
 cask "tokes" do
-  version "0.1.0"
+  version "1.0.0"
   sha256 "REPLACE_WITH_SHA256_FROM_RELEASE"
 
   url "https://github.com/appideasDOTcom/tokes-app/releases/download/v#{version}/Tokes-#{version}.zip"
