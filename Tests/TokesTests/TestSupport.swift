@@ -40,9 +40,15 @@ func mockSession() -> URLSession {
 enum TestFixtures {
     static func limit(id: String = "session", label: String? = nil, percent: Double = 10,
                       severity: String = "normal", resetsAt: Date? = nil,
-                      isSession: Bool = false) -> UsageLimit {
+                      isSession: Bool = false, provider: UsageProvider = .claude,
+                      detail: String? = nil) -> UsageLimit {
         UsageLimit(id: id, label: label ?? id, percent: percent, severity: severity,
-                   resetsAt: resetsAt, isSession: isSession)
+                   resetsAt: resetsAt, isSession: isSession, provider: provider, detail: detail)
+    }
+
+    static func copilotLimit(percent: Double = 12, detail: String? = "37 of 7,000 credits used") -> UsageLimit {
+        limit(id: "copilot_premium", label: "Copilot Premium", percent: percent,
+              provider: .copilot, detail: detail)
     }
 
     static func snapshot(percents: [String: Double], fetchedAt: Date = Date()) -> UsageSnapshot {
@@ -89,6 +95,20 @@ final class MockUsageClient: UsageFetching {
         onFetch?()
         if let gate { await gate() }
         guard !results.isEmpty else { throw UsageError.http(599) }
+        return try results.removeFirst().get()
+    }
+}
+
+/// Scripted CopilotUsageFetching stand-in: returns queued results and counts calls.
+final class MockCopilotClient: CopilotUsageFetching {
+    var results: [Result<UsageLimit, Error>] = []
+    private(set) var fetchCount = 0
+    private(set) var tokens: [String] = []
+
+    func fetch(token: String) async throws -> UsageLimit {
+        fetchCount += 1
+        tokens.append(token)
+        guard !results.isEmpty else { throw CopilotError.http(599) }
         return try results.removeFirst().get()
     }
 }

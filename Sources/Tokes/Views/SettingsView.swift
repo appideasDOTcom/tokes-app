@@ -1,7 +1,7 @@
 import ServiceManagement
 import SwiftUI
 
-/// Settings form: credential source, connection test, refresh interval,
+/// Settings form: Claude and Copilot connections, refresh interval,
 /// menu bar label, and launch at login.
 struct SettingsView: View {
     let onCredentialsChanged: () -> Void
@@ -9,12 +9,19 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.refreshInterval) private var refreshInterval: Double = 60
     @AppStorage(SettingsKeys.showLabel) private var showLabel = false
     @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.claudeCode.rawValue
+    @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
+    @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.editor.rawValue
 
     @State private var manualToken = ""
     @State private var tokenSaved = false
     @State private var testing = false
     @State private var testResult: String?
     @State private var testPassed = false
+    @State private var copilotToken = ""
+    @State private var copilotTokenSaved = false
+    @State private var copilotTesting = false
+    @State private var copilotTestResult: String?
+    @State private var copilotTestPassed = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -58,6 +65,50 @@ struct SettingsView: View {
                 }
             }
 
+            Section("GitHub Copilot") {
+                Toggle("Also monitor Copilot premium requests", isOn: $copilotEnabled)
+
+                if copilotEnabled {
+                    Picker("Credentials", selection: $copilotCredentialSource) {
+                        Text("Use editor sign-in / gh CLI (automatic)").tag(CopilotCredentialSource.editor.rawValue)
+                        Text("Manual GitHub token").tag(CopilotCredentialSource.manual.rawValue)
+                    }
+                    .pickerStyle(.radioGroup)
+
+                    if copilotCredentialSource == CopilotCredentialSource.editor.rawValue {
+                        Text("Reads the token your editor's Copilot plugin keeps in ~/.config/github-copilot, falling back to the GitHub CLI.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        SecureField("GitHub token", text: $copilotToken)
+                        HStack(spacing: 8) {
+                            Button("Save Token") {
+                                copilotTokenSaved = CredentialsProvider.saveManualToken(
+                                    copilotToken, account: CopilotCredentialsProvider.manualAccount)
+                                onCredentialsChanged()
+                            }
+                            .disabled(copilotToken.isEmpty)
+                            if copilotTokenSaved {
+                                Label("Saved", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(copilotTesting ? "Testing…" : "Test Connection") { testCopilotConnection() }
+                            .disabled(copilotTesting)
+                        if let copilotTestResult {
+                            Text(copilotTestResult)
+                                .font(.caption)
+                                .foregroundStyle(copilotTestPassed ? AnyShapeStyle(.green) : AnyShapeStyle(.red))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
             Section("Behavior") {
                 Picker("Refresh every", selection: $refreshInterval) {
                     Text("30 seconds").tag(30.0)
@@ -82,20 +133,59 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") — Claude token usage in your menu bar. Tracks the three plan limits shown in Claude Code: Session (5 hr), Weekly (7 day), and the weekly model-scoped limit.")
+                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") — AI usage in your menu bar. Tracks the three Claude plan limits shown in Claude Code (Session, Weekly, and the weekly model-scoped limit), plus GitHub Copilot premium requests when enabled.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 440)
+        .frame(width: 460, height: 560)
         .onAppear {
             manualToken = CredentialsProvider.readManualToken() ?? ""
+            copilotToken = CredentialsProvider.readManualToken(
+                account: CopilotCredentialsProvider.manualAccount) ?? ""
         }
         .onChange(of: credentialSource) { _, _ in
             tokenSaved = false
             testResult = nil
             onCredentialsChanged()
+        }
+        .onChange(of: copilotCredentialSource) { _, _ in
+            copilotTokenSaved = false
+            copilotTestResult = nil
+            onCredentialsChanged()
+        }
+    }
+
+    /// Fetches Copilot usage once with the selected credentials and reports the result inline.
+    private func testCopilotConnection() {
+        copilotTesting = true
+        copilotTestResult = nil
+        let source = CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .editor
+        let pastedToken = copilotToken
+        Task {
+            do {
+                let token: String
+                switch source {
+                case .manual:
+                    guard !pastedToken.isEmpty else { throw CopilotCredentialError.manualMissing }
+                    token = pastedToken
+                case .editor:
+                    token = try CopilotCredentialsProvider().loadEditorToken()
+                }
+                let limit = try await CopilotClient().fetch(token: token)
+                await MainActor.run {
+                    copilotTestPassed = true
+                    copilotTestResult = "Connected — \(limit.detail ?? "\(Int(limit.percent.rounded()))% used")"
+                    copilotTesting = false
+                }
+            } catch {
+                await MainActor.run {
+                    copilotTestPassed = false
+                    copilotTestResult = error.localizedDescription
+                    copilotTesting = false
+                }
+            }
         }
     }
 

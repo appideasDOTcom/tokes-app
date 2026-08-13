@@ -102,38 +102,59 @@ final class StatusItemController: NSObject {
         }
 
         if limits.isEmpty {
-            button.toolTip = "Tokes — waiting for Claude usage data"
+            button.toolTip = "Tokes — waiting for usage data"
         } else {
-            button.toolTip = "Claude usage — " + limits
+            let prefix = limits.contains { $0.provider == .copilot } ? "Usage — " : "Claude usage — "
+            button.toolTip = prefix + limits
                 .map { "\($0.label): \(Int($0.percent.rounded()))%" }
                 .joined(separator: " · ")
         }
     }
 
-    /// Three vertical bars, one per limit (Session, Weekly, Weekly <model>),
-    /// filled bottom-up and colored by severity. Dynamic colors keep it
-    /// legible in light and dark menu bars.
+    /// Vertical bars, one per limit, filled bottom-up and colored by severity.
+    /// Claude always reserves three tracks; Copilot bars sit behind a thin
+    /// divider so the provider groups read separately at a glance.
     static func makeIcon(limits: [UsageLimit]) -> NSImage {
         let barWidth: CGFloat = 5
         let gap: CGFloat = 3
         let barHeight: CGFloat = 16
-        let count = max(limits.count, 3)
-        let size = NSSize(
-            width: CGFloat(count) * barWidth + CGFloat(count - 1) * gap + 2,
-            height: 18)
+        let dividerBand: CGFloat = 7  // gap + 1pt line + gap
+
+        let claude = limits.filter { $0.provider == .claude }
+        let copilot = limits.filter { $0.provider == .copilot }
+        let claudeSlots: [UsageLimit?] = (0..<max(claude.count, 3)).map { $0 < claude.count ? claude[$0] : nil }
+
+        func sectionWidth(_ n: Int) -> CGFloat { CGFloat(n) * barWidth + CGFloat(n - 1) * gap }
+        let width = 2 + sectionWidth(claudeSlots.count)
+            + (copilot.isEmpty ? 0 : dividerBand + sectionWidth(copilot.count))
+        let size = NSSize(width: width, height: 18)
 
         let image = NSImage(size: size, flipped: false) { _ in
-            for i in 0..<count {
-                let x = 1 + CGFloat(i) * (barWidth + gap)
+            func drawSlot(_ limit: UsageLimit?, at x: CGFloat) {
                 let trackRect = NSRect(x: x, y: 1, width: barWidth, height: barHeight)
                 NSColor.secondaryLabelColor.withAlphaComponent(0.35).setFill()
                 NSBezierPath(roundedRect: trackRect, xRadius: 2.5, yRadius: 2.5).fill()
-
-                guard i < limits.count else { continue }
-                let percent = max(0, min(100, limits[i].percent))
+                guard let limit else { return }
+                let percent = max(0, min(100, limit.percent))
                 let fillRect = NSRect(x: x, y: 1, width: barWidth, height: max(3, barHeight * percent / 100))
                 SeverityColor.nsColor(for: percent).setFill()
                 NSBezierPath(roundedRect: fillRect, xRadius: 2.5, yRadius: 2.5).fill()
+            }
+
+            var x: CGFloat = 1
+            for slot in claudeSlots {
+                drawSlot(slot, at: x)
+                x += barWidth + gap
+            }
+            if !copilot.isEmpty {
+                x -= gap  // the section ends without a trailing gap
+                NSColor.secondaryLabelColor.withAlphaComponent(0.5).setFill()
+                NSRect(x: x + 3, y: 3, width: 1, height: 12).fill()
+                x += dividerBand
+                for limit in copilot {
+                    drawSlot(limit, at: x)
+                    x += barWidth + gap
+                }
             }
             return true
         }
@@ -334,7 +355,7 @@ final class StatusItemController: NSObject {
             window.isReleasedWhenClosed = false
             // Size before centering — SwiftUI hasn't laid out yet, and
             // center() on the initial 1pt frame parks the window off-center.
-            window.setContentSize(NSSize(width: 460, height: 440))
+            window.setContentSize(NSSize(width: 460, height: 560))
             window.center()
             settingsWindow = window
         }

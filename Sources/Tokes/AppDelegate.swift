@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsKeys.refreshInterval: 60.0,
             SettingsKeys.showLabel: false,
             SettingsKeys.credentialSource: CredentialSource.claudeCode.rawValue,
+            SettingsKeys.copilotEnabled: false,
+            SettingsKeys.copilotCredentialSource: CopilotCredentialSource.editor.rawValue,
         ])
     }
 

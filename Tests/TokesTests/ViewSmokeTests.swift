@@ -7,18 +7,24 @@ import XCTest
 /// Hosting-controller smoke tests: each view builds, lays out, and reports a
 /// sensible fitting size for its state.
 final class ViewSmokeTests: XCTestCase {
-    private func makeState(withSnapshot: Bool = true, error: String? = nil) -> AppState {
+    private func makeState(withSnapshot: Bool = true, error: String? = nil,
+                           withCopilot: Bool = false) -> AppState {
         let state = AppState()
         if withSnapshot {
-            state.snapshot = UsageSnapshot(limits: [
+            var limits = [
                 TestFixtures.limit(id: "session", label: "Session (5 hr)", percent: 24,
                                    resetsAt: Date().addingTimeInterval(3600), isSession: true),
                 TestFixtures.limit(id: "weekly_all", label: "Weekly (7 day)", percent: 18),
                 TestFixtures.limit(id: "weekly_scoped:Fable", label: "Weekly Fable", percent: 19),
-            ], fetchedAt: Date())
+            ]
+            if withCopilot {
+                limits.append(TestFixtures.copilotLimit(percent: 12))
+            }
+            state.snapshot = UsageSnapshot(limits: limits, fetchedAt: Date())
             state.samples = (0..<20).map {
                 UsageSample(t: Date().addingTimeInterval(Double(-$0) * 300),
-                            v: ["session": Double($0), "weekly_all": 18, "weekly_scoped:Fable": 19])
+                            v: ["session": Double($0), "weekly_all": 18,
+                                "weekly_scoped:Fable": 19, "copilot_premium": 12])
             }
         }
         state.errorMessage = error
@@ -39,6 +45,16 @@ final class ViewSmokeTests: XCTestCase {
         XCTAssertEqual(view.fittingSize.width, 320, accuracy: 1)
         // Three limit sections with 64pt charts comfortably exceed this.
         XCTAssertGreaterThan(view.fittingSize.height, 200)
+    }
+
+    @MainActor
+    func testPopoverViewGrowsWithCopilotGroup() {
+        let claudeOnly = popover(state: makeState())
+        let withCopilot = popover(state: makeState(withCopilot: true))
+        // A fourth section plus two provider group headers adds real height.
+        XCTAssertGreaterThan(withCopilot.fittingSize.height,
+                             claudeOnly.fittingSize.height + 60)
+        XCTAssertEqual(withCopilot.fittingSize.width, 320, accuracy: 1)
     }
 
     @MainActor

@@ -55,6 +55,37 @@ final class StatusIconTests: XCTestCase {
         let raster = try XCTUnwrap(Raster(StatusItemController.makeIcon(limits: [])))
         XCTAssertLessThan(raster.pixel(x: 3, yFromBottom: 8).a, 150)
     }
+
+    func testCopilotBarSitsBehindDivider() throws {
+        let icon = StatusItemController.makeIcon(limits: [
+            TestFixtures.limit(id: "session", percent: 10),
+            TestFixtures.limit(id: "weekly_all", percent: 10),
+            TestFixtures.limit(id: "weekly_scoped:Fable", percent: 10),
+            TestFixtures.copilotLimit(percent: 40),
+        ])
+        // 3 Claude bars (21) + divider band (7) + 1 Copilot bar (5) + 2 margin.
+        XCTAssertEqual(icon.size.width, 35)
+
+        let raster = try XCTUnwrap(Raster(icon))
+        // Divider line at x=25, mid-height; faint but present.
+        let divider = raster.pixel(x: 25, yFromBottom: 8)
+        XCTAssertGreaterThan(divider.a, 30)
+        XCTAssertLessThan(divider.a, 160)
+        // The gap beside the divider is empty.
+        XCTAssertEqual(raster.pixel(x: 23, yFromBottom: 8).a, 0)
+        // Copilot bar (x 29..34) fills green at 40%.
+        let copilot = raster.pixel(x: 31, yFromBottom: 2)
+        XCTAssertGreaterThan(copilot.g, copilot.r)
+    }
+
+    func testClaudeOnlyIconHasNoDivider() {
+        let icon = StatusItemController.makeIcon(limits: [
+            TestFixtures.limit(id: "session", percent: 10),
+            TestFixtures.limit(id: "weekly_all", percent: 10),
+            TestFixtures.limit(id: "weekly_scoped:Fable", percent: 10),
+        ])
+        XCTAssertEqual(icon.size.width, 23)
+    }
 }
 
 final class DebugLogTests: XCTestCase {

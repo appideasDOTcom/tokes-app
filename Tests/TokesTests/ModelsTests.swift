@@ -22,6 +22,24 @@ final class SeverityColorTests: XCTestCase {
     }
 }
 
+final class UsageProviderTests: XCTestCase {
+    func testDisplayNames() {
+        XCTAssertEqual(UsageProvider.claude.displayName, "Claude")
+        XCTAssertEqual(UsageProvider.copilot.displayName, "GitHub Copilot")
+    }
+
+    func testLimitDefaultsToClaudeWithNoDetail() {
+        let limit = UsageLimit(id: "session", label: "Session", percent: 1,
+                               severity: "normal", resetsAt: nil, isSession: true)
+        XCTAssertEqual(limit.provider, .claude)
+        XCTAssertNil(limit.detail)
+    }
+
+    func testCopilotLimitUsesWeeklyChartWindow() {
+        XCTAssertEqual(TestFixtures.copilotLimit().chartWindow, 7 * 24 * 3600)
+    }
+}
+
 final class ResetFormatterTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_786_600_000)
 

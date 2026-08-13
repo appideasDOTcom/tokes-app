@@ -17,6 +17,8 @@ struct UsageChart: View {
     let color: Color
     let samples: [UsageSample]
     let currentPercent: Double
+    /// Dashed line stroke; distinguishes Copilot charts from Claude's solid lines.
+    var dashed = false
 
     /// This limit's samples within the window, downsampled, plus a "now" point
     /// so the chart is alive from the first poll.
@@ -45,7 +47,8 @@ struct UsageChart: View {
                 LineMark(x: .value("Time", p.date), y: .value("Usage", p.value))
                     .interpolationMethod(.monotone)
                     .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round,
+                                           dash: dashed ? [5, 3] : []))
             }
             if let last = pts.last {
                 PointMark(x: .value("Time", last.date), y: .value("Usage", last.value))

@@ -6,6 +6,8 @@ enum SettingsKeys {
     static let refreshInterval = "refreshInterval"
     static let showLabel = "showLabel"
     static let credentialSource = "credentialSource"
+    static let copilotEnabled = "copilotEnabled"
+    static let copilotCredentialSource = "copilotCredentialSource"
 }
 
 /// Source of the OAuth token: Claude Code's stored credentials or a manually pasted token.
@@ -14,18 +16,56 @@ enum CredentialSource: String {
     case manual
 }
 
-/// One rate-limit bucket as reported by the usage API.
+/// Source of the GitHub token: editor Copilot sign-in / gh CLI, or a manually pasted token.
+enum CopilotCredentialSource: String {
+    case editor
+    case manual
+}
+
+/// The service a usage limit belongs to; drives grouping and visual separation.
+enum UsageProvider: String, CaseIterable, Codable {
+    case claude
+    case copilot
+
+    /// Group heading shown in the popover.
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude"
+        case .copilot: return "GitHub Copilot"
+        }
+    }
+}
+
+/// One rate-limit bucket as reported by a usage API.
 struct UsageLimit: Identifiable, Equatable {
-    /// Stable identity across polls, e.g. "session", "weekly_all", "weekly_scoped:Fable"
+    /// Stable identity across polls, e.g. "session", "weekly_all", "copilot_premium"
     let id: String
     let label: String
     let percent: Double
     let severity: String
     let resetsAt: Date?
-    /// true for the 5-hour session bucket, false for weekly buckets
+    /// true for the 5-hour session bucket, false for weekly/monthly buckets
     let isSession: Bool
+    /// Which service reported this limit.
+    let provider: UsageProvider
+    /// Optional caption, e.g. Copilot's "37 of 7,000 credits used".
+    let detail: String?
 
-    /// Time span the limit's chart displays: 6 hours for session, 7 days for weekly.
+    /// Creates a limit; provider defaults to Claude and detail to none.
+    init(id: String, label: String, percent: Double, severity: String,
+         resetsAt: Date?, isSession: Bool,
+         provider: UsageProvider = .claude, detail: String? = nil) {
+        self.id = id
+        self.label = label
+        self.percent = percent
+        self.severity = severity
+        self.resetsAt = resetsAt
+        self.isSession = isSession
+        self.provider = provider
+        self.detail = detail
+    }
+
+    /// Time span the limit's chart displays: 6 hours for session, 7 days otherwise.
     var chartWindow: TimeInterval {
         isSession ? 6 * 3600 : 7 * 24 * 3600
     }

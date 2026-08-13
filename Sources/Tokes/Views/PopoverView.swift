@@ -16,9 +16,7 @@ struct PopoverView: View {
                 errorBanner(error)
             }
             if let snapshot = state.snapshot {
-                ForEach(snapshot.limits) { limit in
-                    LimitSection(limit: limit, samples: state.samples)
-                }
+                limitGroups(snapshot)
             } else if state.errorMessage == nil {
                 HStack {
                     Spacer()
@@ -35,10 +33,40 @@ struct PopoverView: View {
         .onHover(perform: onHoverChanged)
     }
 
+    /// Limit sections, grouped under provider headings when more than one
+    /// provider is reporting so the two services read separately.
+    private func limitGroups(_ snapshot: UsageSnapshot) -> some View {
+        let providers = UsageProvider.allCases.filter { p in
+            snapshot.limits.contains { $0.provider == p }
+        }
+        return ForEach(providers, id: \.self) { provider in
+            VStack(alignment: .leading, spacing: 12) {
+                if providers.count > 1 {
+                    if provider != providers.first {
+                        Divider()
+                    }
+                    Text(provider.displayName.uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .kerning(0.8)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(snapshot.limits.filter { $0.provider == provider }) { limit in
+                    LimitSection(limit: limit, samples: state.samples)
+                }
+            }
+        }
+    }
+
+    /// Popover title: provider-specific while only Claude reports.
+    private var title: String {
+        let hasCopilot = state.snapshot?.limits.contains { $0.provider == .copilot } ?? false
+        return hasCopilot ? "Usage" : "Claude Usage"
+    }
+
     /// Title row with refresh, settings, and quit buttons.
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Claude Usage")
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
             Button(action: onRefresh) {
@@ -116,12 +144,23 @@ struct LimitSection: View {
                 isSession: limit.isSession,
                 color: SeverityColor.color(for: limit.percent),
                 samples: samples,
-                currentPercent: limit.percent)
+                currentPercent: limit.percent,
+                dashed: limit.provider == .copilot)
                 .frame(height: 64)
-            if let resetsAt = limit.resetsAt {
-                Text(ResetFormatter.resetsIn(resetsAt))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if limit.resetsAt != nil || limit.detail != nil {
+                HStack {
+                    if let resetsAt = limit.resetsAt {
+                        Text(ResetFormatter.resetsIn(resetsAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if let detail = limit.detail {
+                        Text(detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

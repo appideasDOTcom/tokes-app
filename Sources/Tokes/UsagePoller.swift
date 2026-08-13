@@ -1,11 +1,18 @@
 import AppKit
 
-/// Abstraction over the usage client, injectable for tests.
+/// Abstraction over the Claude usage client, injectable for tests.
 protocol UsageFetching {
     func fetch(token: String) async throws -> UsageSnapshot
 }
 
 extension UsageClient: UsageFetching {}
+
+/// Abstraction over the Copilot usage client, injectable for tests.
+protocol CopilotUsageFetching {
+    func fetch(token: String) async throws -> UsageLimit
+}
+
+extension CopilotClient: CopilotUsageFetching {}
 
 /// Abstraction over credential resolution, injectable for tests.
 protocol TokenProviding: AnyObject {
@@ -15,27 +22,35 @@ protocol TokenProviding: AnyObject {
 
 extension CredentialsProvider: TokenProviding {}
 
-/// Polls the usage endpoint on a settings-driven interval, updating AppState
-/// and recording history samples.
+/// Polls the usage endpoints on a settings-driven interval, updating AppState
+/// and recording history samples. Claude is always polled; Copilot only when
+/// enabled in Settings.
 final class UsagePoller {
     private let state: AppState
     private let history: HistoryStore
     private let client: UsageFetching
     private let credentials: TokenProviding
+    private let copilotClient: CopilotUsageFetching
+    private let copilotCredentials: TokenProviding
 
     private var timer: Timer?
     private var currentInterval: TimeInterval = 0
+    private var currentCopilotEnabled = false
     private var inFlight = false
     private var lastRateLimitedAt: Date?
 
     /// Creates a poller that publishes into `state` and records samples to `history`.
     init(state: AppState, history: HistoryStore,
          client: UsageFetching = UsageClient(),
-         credentials: TokenProviding = CredentialsProvider()) {
+         credentials: TokenProviding = CredentialsProvider(),
+         copilotClient: CopilotUsageFetching = CopilotClient(),
+         copilotCredentials: TokenProviding = CopilotCredentialsProvider()) {
         self.state = state
         self.history = history
         self.client = client
         self.credentials = credentials
+        self.copilotClient = copilotClient
+        self.copilotCredentials = copilotCredentials
     }
 
     /// User-configured refresh interval in seconds, floored to 10.
@@ -44,8 +59,14 @@ final class UsagePoller {
         return v >= 10 ? v : 60
     }
 
+    /// Whether Copilot monitoring is enabled in Settings.
+    var copilotEnabled: Bool {
+        UserDefaults.standard.bool(forKey: SettingsKeys.copilotEnabled)
+    }
+
     /// Schedules the timer, polls immediately, and observes wake and settings changes.
     func start() {
+        currentCopilotEnabled = copilotEnabled
         schedule()
         refreshNow()
 
@@ -66,6 +87,7 @@ final class UsagePoller {
     /// Re-resolve credentials on the next poll (e.g. after settings change).
     func credentialsChanged() {
         credentials.invalidate()
+        copilotCredentials.invalidate()
         refreshNow()
     }
 
@@ -112,44 +134,106 @@ final class UsagePoller {
         }
     }
 
-    /// Reschedules the timer when the refresh-interval setting changes.
+    /// Reschedules on interval changes; re-polls when Copilot is toggled.
     @objc private func defaultsChanged() {
         if configuredInterval != currentInterval {
             DispatchQueue.main.async { [weak self] in self?.schedule() }
         }
+        if copilotEnabled != currentCopilotEnabled {
+            currentCopilotEnabled = copilotEnabled
+            DispatchQueue.main.async { [weak self] in self?.refreshNow() }
+        }
     }
 
-    /// One poll: fetch, publish the snapshot, and record a history sample.
-    /// On failure the last snapshot stays visible and a message is surfaced.
+    /// One poll: fetch all enabled providers concurrently, publish the merged
+    /// snapshot, and record a history sample of the fresh values. A failed
+    /// provider keeps its last-known limits visible and surfaces a message.
     @MainActor
     func tick() async {
         guard !inFlight else { return }
         inFlight = true
         defer { inFlight = false }
 
-        do {
-            let snapshot = try await fetchWithRetry()
-            state.snapshot = snapshot
-            state.errorMessage = nil
-            let sample = UsageSample(
-                t: snapshot.fetchedAt,
-                v: Dictionary(uniqueKeysWithValues: snapshot.limits.map { ($0.id, $0.percent) }))
-            history.append(sample)
-            state.samples = history.samples
-        } catch {
-            // Keep the last snapshot visible; just surface the error.
+        async let claudeTask = claudeResult()
+        async let copilotTask = copilotResult(enabled: copilotEnabled)
+        let claude = await claudeTask
+        let copilot = await copilotTask
+
+        var limits: [UsageLimit] = []
+        var freshValues: [String: Double] = [:]
+        var errors: [String] = []
+        var anySuccess = false
+        var fetchedAt = Date()
+
+        switch claude {
+        case .success(let fresh):
+            anySuccess = true
+            fetchedAt = fresh.fetchedAt
+            limits += fresh.limits
+            fresh.limits.forEach { freshValues[$0.id] = $0.percent }
+        case .failure(let error):
+            // Keep the last Claude limits visible; just surface the error.
+            limits += previousLimits(for: .claude)
             if case UsageError.http(429) = error {
                 lastRateLimitedAt = Date()
-                state.errorMessage = "Usage API rate-limited — retrying automatically."
+                errors.append("Usage API rate-limited — retrying automatically.")
             } else {
-                state.errorMessage = error.localizedDescription
+                errors.append(error.localizedDescription)
             }
-            DebugLog.log("Tokes: tick failed: \(error)")
+            DebugLog.log("Tokes: Claude tick failed: \(error)")
+        }
+
+        if let copilot {
+            switch copilot {
+            case .success(let limit):
+                anySuccess = true
+                limits.append(limit)
+                freshValues[limit.id] = limit.percent
+            case .failure(let error):
+                limits += previousLimits(for: .copilot)
+                errors.append(error.localizedDescription)
+                DebugLog.log("Tokes: Copilot tick failed: \(error)")
+            }
+        }
+
+        // Publish only when something succeeded; on total failure the previous
+        // snapshot (and its fetchedAt) stays as-is.
+        if anySuccess {
+            state.snapshot = UsageSnapshot(limits: limits, fetchedAt: fetchedAt)
+            let sample = UsageSample(t: fetchedAt, v: freshValues)
+            history.append(sample)
+            state.samples = history.samples
+        }
+        state.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    /// The current snapshot's limits for one provider (used to carry stale
+    /// data through a failed poll).
+    private func previousLimits(for provider: UsageProvider) -> [UsageLimit] {
+        state.snapshot?.limits.filter { $0.provider == provider } ?? []
+    }
+
+    /// Claude fetch wrapped in a Result for concurrent merging.
+    private func claudeResult() async -> Result<UsageSnapshot, Error> {
+        do {
+            return .success(try await fetchWithRetry())
+        } catch {
+            return .failure(error)
         }
     }
 
-    /// Fetches usage, re-resolving credentials once on 401 in case Claude Code
-    /// rotated the token.
+    /// Copilot fetch wrapped in a Result; nil when monitoring is disabled.
+    private func copilotResult(enabled: Bool) async -> Result<UsageLimit, Error>? {
+        guard enabled else { return nil }
+        do {
+            return .success(try await fetchCopilotWithRetry())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Fetches Claude usage, re-resolving credentials once on 401 in case
+    /// Claude Code rotated the token.
     private func fetchWithRetry() async throws -> UsageSnapshot {
         do {
             let token = try credentials.accessToken()
@@ -158,6 +242,19 @@ final class UsagePoller {
             credentials.invalidate()
             let token = try credentials.accessToken()
             return try await client.fetch(token: token)
+        }
+    }
+
+    /// Fetches Copilot usage, re-reading credentials once on 401 in case the
+    /// editor plugin rotated the token.
+    private func fetchCopilotWithRetry() async throws -> UsageLimit {
+        do {
+            let token = try copilotCredentials.accessToken()
+            return try await copilotClient.fetch(token: token)
+        } catch CopilotError.unauthorized {
+            copilotCredentials.invalidate()
+            let token = try copilotCredentials.accessToken()
+            return try await copilotClient.fetch(token: token)
         }
     }
 }
