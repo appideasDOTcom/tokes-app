@@ -4,11 +4,70 @@ import SwiftUI
 /// UserDefaults keys for user-configurable settings.
 enum SettingsKeys {
     static let refreshInterval = "refreshInterval"
-    static let showLabel = "showLabel"
+    static let menuBarLabel = "menuBarLabel"
     static let credentialSource = "credentialSource"
     static let copilotEnabled = "copilotEnabled"
     static let copilotCredentialSource = "copilotCredentialSource"
     static let showScopedWeekly = "showScopedWeekly"
+
+    /// Pre-picker on/off toggle for the menu bar text, migrated to `menuBarLabel`.
+    static let legacyShowLabel = "showLabel"
+}
+
+/// Which measurement the menu bar draws as text beside the icon.
+enum MenuBarLabel: String, CaseIterable {
+    case off
+    case highest
+    case session
+    case weeklyAll
+    case weeklyScoped
+    case copilot
+
+    /// Menu title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .highest: return "Highest value"
+        case .session: return "Session (5 hr)"
+        case .weeklyAll: return "Weekly (7 day)"
+        case .weeklyScoped: return "Weekly (model-specific)"
+        case .copilot: return "Copilot Premium"
+        }
+    }
+
+    /// The limit this option names, or nil when the snapshot doesn't report it
+    /// (Copilot off, plan without a model-scoped weekly, nothing polled yet).
+    func limit(in limits: [UsageLimit]) -> UsageLimit? {
+        switch self {
+        case .off: return nil
+        case .highest: return limits.max { $0.percent < $1.percent }
+        case .session: return limits.first { $0.id == "session" }
+        case .weeklyAll: return limits.first { $0.id == "weekly_all" }
+        case .weeklyScoped: return limits.first { $0.isScopedWeekly }
+        case .copilot: return limits.first { $0.provider == .copilot }
+        }
+    }
+
+    /// The options Settings offers: the two always-present Claude limits plus
+    /// whichever optional measurements the other toggles have enabled.
+    static func available(copilotEnabled: Bool, showScopedWeekly: Bool) -> [MenuBarLabel] {
+        var result: [MenuBarLabel] = [.off, .highest, .session, .weeklyAll]
+        if showScopedWeekly { result.append(.weeklyScoped) }
+        if copilotEnabled { result.append(.copilot) }
+        return result
+    }
+
+    /// Falls back to "Highest value" when this option is no longer offered,
+    /// e.g. Copilot was selected and then turned off.
+    func normalized(copilotEnabled: Bool, showScopedWeekly: Bool) -> MenuBarLabel {
+        Self.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly)
+            .contains(self) ? self : .highest
+    }
+
+    /// Reads the stored selection, falling back to `.off` for missing or unknown values.
+    static func current(in defaults: UserDefaults = .standard) -> MenuBarLabel {
+        MenuBarLabel(rawValue: defaults.string(forKey: SettingsKeys.menuBarLabel) ?? "") ?? .off
+    }
 }
 
 /// Source of the OAuth token: Claude Code's stored credentials or a manually pasted token.

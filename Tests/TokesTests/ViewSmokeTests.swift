@@ -102,4 +102,28 @@ final class ViewSmokeTests: XCTestCase {
         XCTAssertNotNil(hosting.view)
         XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1)
     }
+
+    /// The menu bar picker renders for every stored selection, including one
+    /// whose measurement is currently switched off.
+    @MainActor
+    func testSettingsViewLoadsForEveryMenuBarSelection() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.menuBarLabel)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.showScopedWeekly)
+        }
+        for copilot in [false, true] {
+            for scoped in [false, true] {
+                UserDefaults.standard.set(copilot, forKey: SettingsKeys.copilotEnabled)
+                UserDefaults.standard.set(scoped, forKey: SettingsKeys.showScopedWeekly)
+                for option in MenuBarLabel.allCases {
+                    UserDefaults.standard.set(option.rawValue, forKey: SettingsKeys.menuBarLabel)
+                    let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+                    hosting.view.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
+                                   "\(option) / copilot=\(copilot) scoped=\(scoped)")
+                }
+            }
+        }
+    }
 }

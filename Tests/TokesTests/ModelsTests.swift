@@ -90,3 +90,99 @@ final class CredentialSourceTests: XCTestCase {
         XCTAssertNil(CredentialSource(rawValue: "bogus"))
     }
 }
+
+final class MenuBarLabelTests: XCTestCase {
+    /// A full snapshot: both Claude weeklies, the model-scoped weekly, and Copilot.
+    private let allLimits = [
+        TestFixtures.limit(id: "session", percent: 24, isSession: true),
+        TestFixtures.limit(id: "weekly_all", percent: 61),
+        TestFixtures.limit(id: "weekly_scoped:Fable", percent: 88),
+        TestFixtures.copilotLimit(percent: 12),
+    ]
+
+    func testRawValuesAreStable() {
+        // Stored in UserDefaults — renaming a case would silently reset users.
+        XCTAssertEqual(MenuBarLabel.allCases.map(\.rawValue),
+                       ["off", "highest", "session", "weeklyAll", "weeklyScoped", "copilot"])
+        XCTAssertEqual(MenuBarLabel(rawValue: "weeklyScoped"), .weeklyScoped)
+        XCTAssertNil(MenuBarLabel(rawValue: "bogus"))
+    }
+
+    func testEachOptionSelectsItsOwnMeasurement() {
+        XCTAssertNil(MenuBarLabel.off.limit(in: allLimits))
+        XCTAssertEqual(MenuBarLabel.session.limit(in: allLimits)?.id, "session")
+        XCTAssertEqual(MenuBarLabel.weeklyAll.limit(in: allLimits)?.id, "weekly_all")
+        XCTAssertEqual(MenuBarLabel.weeklyScoped.limit(in: allLimits)?.id, "weekly_scoped:Fable")
+        XCTAssertEqual(MenuBarLabel.copilot.limit(in: allLimits)?.id, "copilot_premium")
+    }
+
+    func testHighestPicksTheLargestPercentRegardlessOfProvider() {
+        XCTAssertEqual(MenuBarLabel.highest.limit(in: allLimits)?.id, "weekly_scoped:Fable")
+
+        let copilotLeads = [
+            TestFixtures.limit(id: "session", percent: 5),
+            TestFixtures.copilotLimit(percent: 97),
+        ]
+        XCTAssertEqual(MenuBarLabel.highest.limit(in: copilotLeads)?.id, "copilot_premium")
+    }
+
+    func testScopedWeeklyMatchesAnyModelName() {
+        let limits = [TestFixtures.limit(id: "weekly_scoped:Some Future Model", percent: 40)]
+        XCTAssertEqual(MenuBarLabel.weeklyScoped.limit(in: limits)?.percent, 40)
+    }
+
+    func testMissingMeasurementSelectsNothing() {
+        let claudeOnly = allLimits.filter { $0.provider == .claude }
+        XCTAssertNil(MenuBarLabel.copilot.limit(in: claudeOnly))
+
+        let noScoped = allLimits.filter { !$0.isScopedWeekly }
+        XCTAssertNil(MenuBarLabel.weeklyScoped.limit(in: noScoped))
+
+        for option in MenuBarLabel.allCases {
+            XCTAssertNil(option.limit(in: []), "\(option) should select nothing from an empty snapshot")
+        }
+    }
+
+    func testAvailableOptionsFollowTheOtherToggles() {
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: true),
+                       [.off, .highest, .session, .weeklyAll, .weeklyScoped, .copilot])
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: true),
+                       [.off, .highest, .session, .weeklyAll, .weeklyScoped])
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: false),
+                       [.off, .highest, .session, .weeklyAll, .copilot])
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: false),
+                       [.off, .highest, .session, .weeklyAll])
+    }
+
+    func testNormalizeFallsBackWhenAnOptionDisappears() {
+        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: false, showScopedWeekly: true),
+                       .highest)
+        XCTAssertEqual(MenuBarLabel.weeklyScoped.normalized(copilotEnabled: true, showScopedWeekly: false),
+                       .highest)
+        // Still-offered selections are left alone.
+        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: true, showScopedWeekly: false),
+                       .copilot)
+        XCTAssertEqual(MenuBarLabel.off.normalized(copilotEnabled: false, showScopedWeekly: false), .off)
+        XCTAssertEqual(MenuBarLabel.session.normalized(copilotEnabled: false, showScopedWeekly: false),
+                       .session)
+    }
+
+    func testEveryOptionHasADistinctMenuTitle() {
+        let titles = MenuBarLabel.allCases.map(\.displayName)
+        XCTAssertEqual(Set(titles).count, titles.count)
+        XCTAssertEqual(MenuBarLabel.off.displayName, "Off")
+        XCTAssertEqual(MenuBarLabel.highest.displayName, "Highest value")
+    }
+
+    func testCurrentReadsStoredSelection() {
+        let suiteName = "TokesTests-menuBarLabel-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(MenuBarLabel.current(in: defaults), .off)  // unset
+        defaults.set("weeklyAll", forKey: SettingsKeys.menuBarLabel)
+        XCTAssertEqual(MenuBarLabel.current(in: defaults), .weeklyAll)
+        defaults.set("nonsense", forKey: SettingsKeys.menuBarLabel)
+        XCTAssertEqual(MenuBarLabel.current(in: defaults), .off)
+    }
+}

@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func registerDefaults(in defaults: UserDefaults = .standard) {
         defaults.register(defaults: [
             SettingsKeys.refreshInterval: 60.0,
-            SettingsKeys.showLabel: false,
+            SettingsKeys.menuBarLabel: MenuBarLabel.off.rawValue,
             SettingsKeys.credentialSource: CredentialSource.claudeCode.rawValue,
             SettingsKeys.copilotEnabled: false,
             SettingsKeys.copilotCredentialSource: CopilotCredentialSource.editor.rawValue,
@@ -17,8 +17,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
     }
 
+    /// Carries the old `showLabel` toggle over to `menuBarLabel`: on became
+    /// "highest value", off became no label. Runs once — after this the legacy
+    /// key is gone.
+    ///
+    /// Must run *before* `registerDefaults`: `register(defaults:)` fills the
+    /// registration domain, after which `object(forKey:)` returns the factory
+    /// default instead of nil and "did the user ever set this?" can no longer
+    /// be answered.
+    static func migrateSettings(in defaults: UserDefaults = .standard) {
+        guard let wasShowing = defaults.object(forKey: SettingsKeys.legacyShowLabel) as? Bool else { return }
+        if defaults.object(forKey: SettingsKeys.menuBarLabel) == nil {
+            defaults.set(wasShowing ? MenuBarLabel.highest.rawValue : MenuBarLabel.off.rawValue,
+                         forKey: SettingsKeys.menuBarLabel)
+        }
+        defaults.removeObject(forKey: SettingsKeys.legacyShowLabel)
+    }
+
     /// Registers settings defaults and starts polling and the menu bar item.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.migrateSettings()  // before registerDefaults — see its doc comment
         Self.registerDefaults()
 
         let state = AppState()

@@ -132,3 +132,63 @@ final class DebugLogTests: XCTestCase {
         XCTAssertEqual(text.split(separator: "\n").count, 2)
     }
 }
+
+final class StatusTitleTests: XCTestCase {
+    private let limits = [
+        TestFixtures.limit(id: "session", percent: 24.4, isSession: true),
+        TestFixtures.limit(id: "weekly_all", percent: 60.5),
+        TestFixtures.limit(id: "weekly_scoped:Fable", percent: 88),
+        TestFixtures.copilotLimit(percent: 12),
+    ]
+
+    private func title(_ selection: MenuBarLabel, limits: [UsageLimit]? = nil,
+                       hasError: Bool = false) -> NSAttributedString? {
+        StatusItemController.makeTitle(limits: limits ?? self.limits,
+                                       selection: selection, hasError: hasError)
+    }
+
+    func testOffDrawsNoTitle() {
+        XCTAssertNil(title(.off))
+    }
+
+    func testEachSelectionDrawsItsOwnPercent() {
+        XCTAssertEqual(title(.session)?.string, " 24%")
+        XCTAssertEqual(title(.weeklyAll)?.string, " 61%")   // 60.5 rounds up
+        XCTAssertEqual(title(.weeklyScoped)?.string, " 88%")
+        XCTAssertEqual(title(.copilot)?.string, " 12%")
+        XCTAssertEqual(title(.highest)?.string, " 88%")
+    }
+
+    func testAbsentMeasurementDrawsNoTitleRatherThanAnotherLimit() {
+        let claudeOnly = limits.filter { $0.provider == .claude }
+        XCTAssertNil(title(.copilot, limits: claudeOnly))
+
+        let noScoped = limits.filter { !$0.isScopedWeekly }
+        XCTAssertNil(title(.weeklyScoped, limits: noScoped))
+
+        for option in MenuBarLabel.allCases {
+            XCTAssertNil(title(option, limits: []), "\(option) should draw nothing before the first poll")
+        }
+    }
+
+    func testColorSignalsExhaustionThenStaleness() throws {
+        func color(of string: NSAttributedString?) throws -> NSColor {
+            let attributed = try XCTUnwrap(string)
+            return try XCTUnwrap(
+                attributed.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+        }
+
+        let maxed = [TestFixtures.limit(id: "session", percent: 100)]
+        XCTAssertEqual(try color(of: title(.session, limits: maxed)), .systemRed)
+        // Exhaustion outranks staleness.
+        XCTAssertEqual(try color(of: title(.session, limits: maxed, hasError: true)), .systemRed)
+        XCTAssertEqual(try color(of: title(.session, hasError: true)), .systemOrange)
+        XCTAssertEqual(try color(of: title(.session)), .labelColor)
+    }
+
+    func testTitleUsesMonospacedDigitsSoWidthDoesNotJitter() throws {
+        let attributed = try XCTUnwrap(title(.session))
+        let font = try XCTUnwrap(attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        XCTAssertEqual(font, NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium))
+    }
+}

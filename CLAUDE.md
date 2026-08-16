@@ -16,6 +16,13 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
 - If the usage endpoint returns **HTTP 429**, Tokes keeps the last snapshot, shows a banner,
   and skips Claude polls entirely until the backoff passes: `Retry-After` header when
   present, else 90 s doubling per consecutive 429 (cap 15 min). Copilot polling continues.
+- **Settings** are `SettingsKeys` constants + `AppDelegate.registerDefaults` + `@AppStorage`
+  in `SettingsView`. When a key's meaning or type changes, migrate it in
+  `AppDelegate.migrateSettings`, which must run *before* `registerDefaults` — see its doc
+  comment for why.
+- **Seeing a UI change actually render** (status item or Settings, including while the usage
+  API is 429ing and the real app has nothing to draw): use the `visual-verify` skill in
+  `.claude/skills/`.
 
 ## Rules
 

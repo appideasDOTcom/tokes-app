@@ -6,9 +6,10 @@ Claude and GitHub Copilot plan usage at a glance: the three limits Claude Code r
 also tracks **GitHub Copilot premium requests** (credits used of your monthly allowance).
 
 - **Menu bar icon**: three vertical bars (Session · Weekly · Model), filled bottom-up and
-  colored by severity (green → orange ≥ 60% → red ≥ 85%). Optional text label with the
-  highest percentage. With Copilot enabled, its bar appears behind a thin divider so the
-  provider groups read separately.
+  colored by severity (green → orange ≥ 60% → red ≥ 85%). Optional text label showing one
+  percentage — either the highest of them, or a specific limit you pick in Settings. With
+  Copilot enabled, its bar appears behind a thin divider so the provider groups read
+  separately.
 - **Hover** the icon to drop down a popover with a line chart per limit (session chart shows
   the last 6 hours, weekly/monthly charts the last 7 days), current percentage, and reset
   countdowns. When both providers report, sections are grouped under **Claude** /
@@ -16,7 +17,11 @@ also tracks **GitHub Copilot premium requests** (credits used of your monthly al
   tell apart. **Click** to pin the popover; click outside or click the icon again to dismiss.
 - **Right-click** for Refresh / Settings / Quit.
 - **Settings** (gear in the popover): credential sources, Copilot on/off, refresh interval,
-  launch at login, menu bar text label.
+  launch at login, and **Show in menu bar** — off, the highest value, or one specific
+  measurement (Session, Weekly, the model-scoped weekly, or Copilot Premium). The
+  model-scoped and Copilot entries are offered only while those are switched on; if the
+  measurement you picked isn't in the current snapshot, the menu bar shows the icon alone
+  rather than another limit's number.
 
 ### How it gets the numbers
 

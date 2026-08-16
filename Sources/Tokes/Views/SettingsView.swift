@@ -7,7 +7,7 @@ struct SettingsView: View {
     let onCredentialsChanged: () -> Void
 
     @AppStorage(SettingsKeys.refreshInterval) private var refreshInterval: Double = 60
-    @AppStorage(SettingsKeys.showLabel) private var showLabel = false
+    @AppStorage(SettingsKeys.menuBarLabel) private var menuBarLabel = MenuBarLabel.off.rawValue
     @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.claudeCode.rawValue
     @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
     @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.editor.rawValue
@@ -24,6 +24,11 @@ struct SettingsView: View {
     @State private var copilotTestResult: String?
     @State private var copilotTestPassed = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    /// Menu bar options offered for the current Copilot / scoped-weekly toggles.
+    private var availableLabels: [MenuBarLabel] {
+        MenuBarLabel.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly)
+    }
 
     var body: some View {
         Form {
@@ -118,7 +123,11 @@ struct SettingsView: View {
                     Text("5 minutes").tag(300.0)
                     Text("15 minutes").tag(900.0)
                 }
-                Toggle("Show highest usage as text in menu bar", isOn: $showLabel)
+                Picker("Show in menu bar", selection: $menuBarLabel) {
+                    ForEach(availableLabels, id: \.self) { option in
+                        Text(option.displayName).tag(option.rawValue)
+                    }
+                }
                 Toggle("Show model-specific weekly limit (e.g. Weekly Fable)", isOn: $showScopedWeekly)
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enable in
@@ -146,7 +155,12 @@ struct SettingsView: View {
             manualToken = CredentialsProvider.readManualToken() ?? ""
             copilotToken = CredentialsProvider.readManualToken(
                 account: CopilotCredentialsProvider.manualAccount) ?? ""
+            normalizeMenuBarLabel()
         }
+        // Turning off Copilot or the scoped weekly limit removes its menu bar
+        // option; a selection left pointing at it would render the picker blank.
+        .onChange(of: copilotEnabled) { _, _ in normalizeMenuBarLabel() }
+        .onChange(of: showScopedWeekly) { _, _ in normalizeMenuBarLabel() }
         .onChange(of: credentialSource) { _, _ in
             tokenSaved = false
             testResult = nil
@@ -157,6 +171,15 @@ struct SettingsView: View {
             copilotTestResult = nil
             onCredentialsChanged()
         }
+    }
+
+    /// Drops the menu bar selection back to "Highest value" when the measurement
+    /// it names is no longer offered.
+    private func normalizeMenuBarLabel() {
+        let selection = MenuBarLabel(rawValue: menuBarLabel) ?? .off
+        let valid = selection.normalized(copilotEnabled: copilotEnabled,
+                                         showScopedWeekly: showScopedWeekly)
+        if valid.rawValue != menuBarLabel { menuBarLabel = valid.rawValue }
     }
 
     /// Fetches Copilot usage once with the selected credentials and reports the result inline.

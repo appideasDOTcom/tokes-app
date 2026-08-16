@@ -99,18 +99,8 @@ final class StatusItemController: NSObject {
         button.image = Self.makeIcon(limits: limits, claudeTracks: showScoped ? 3 : 2)
         button.imagePosition = .imageLeading
 
-        let showLabel = UserDefaults.standard.bool(forKey: SettingsKeys.showLabel)
-        if showLabel, let top = limits.max(by: { $0.percent < $1.percent }) {
-            let labelColor: NSColor = top.percent >= 100 ? .systemRed
-                : hasError ? .systemOrange
-                : .labelColor
-            button.attributedTitle = NSAttributedString(
-                string: " \(Int(top.percent.rounded()))%",
-                attributes: [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                    .foregroundColor: labelColor,
-                    .baselineOffset: 0.5,
-                ])
+        if let title = Self.makeTitle(limits: limits, selection: .current(), hasError: hasError) {
+            button.attributedTitle = title
         } else {
             button.title = ""
         }
@@ -123,6 +113,26 @@ final class StatusItemController: NSObject {
                 .map { "\($0.label): \(Int($0.percent.rounded()))%" }
                 .joined(separator: " · ")
         }
+    }
+
+    /// The percent text beside the icon for the selected measurement, or nil
+    /// when nothing should be drawn — the selection is Off, or the measurement
+    /// is absent (Copilot off, a plan without a model-scoped weekly, nothing
+    /// polled yet). Showing nothing beats showing a different limit's number
+    /// under the name the user chose.
+    static func makeTitle(limits: [UsageLimit], selection: MenuBarLabel,
+                          hasError: Bool) -> NSAttributedString? {
+        guard let shown = selection.limit(in: limits) else { return nil }
+        let labelColor: NSColor = shown.percent >= 100 ? .systemRed
+            : hasError ? .systemOrange
+            : .labelColor
+        return NSAttributedString(
+            string: " \(Int(shown.percent.rounded()))%",
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: labelColor,
+                .baselineOffset: 0.5,
+            ])
     }
 
     /// Vertical bars, one per limit, filled bottom-up and colored by severity.
