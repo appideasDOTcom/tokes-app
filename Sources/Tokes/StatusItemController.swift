@@ -91,31 +91,60 @@ final class StatusItemController: NSObject {
 
     // MARK: - Menu bar rendering
 
+    /// Everything the menu bar draws for a snapshot, computed with no AppKit
+    /// involved so the composition can be asserted directly. `makeIcon` and
+    /// `makeTitle` were already testable in isolation; this is the part that
+    /// decides *what they are given*, which is where the scoped-weekly setting
+    /// actually takes effect.
+    struct MenuBarContent: Equatable {
+        /// Limits to draw, after the scoped-weekly setting has filtered them.
+        let limits: [UsageLimit]
+        /// Bar slots the Claude section reserves, so the item's width does not
+        /// jitter as buckets appear. Moves with the same setting that filters.
+        let claudeTracks: Int
+        let toolTip: String
+    }
+
+    /// Resolves a snapshot and the scoped-weekly setting into what the button
+    /// should show.
+    static func content(for snapshot: UsageSnapshot?, showScopedWeekly: Bool) -> MenuBarContent {
+        let limits = (snapshot?.limits ?? []).filter { showScopedWeekly || !$0.isScopedWeekly }
+        let toolTip: String
+        if limits.isEmpty {
+            toolTip = "Tokes — waiting for usage data"
+        } else {
+            let prefix = limits.contains { $0.provider == .copilot } ? "Usage — " : "Claude usage — "
+            toolTip = prefix + limits
+                .map { "\($0.label): \(Int($0.percent.rounded()))%" }
+                .joined(separator: " · ")
+        }
+        return MenuBarContent(limits: limits,
+                              claudeTracks: showScopedWeekly ? 3 : 2,
+                              toolTip: toolTip)
+    }
+
+    /// Reads the scoped-weekly setting, defaulting to on when never set.
+    static func showScopedWeekly(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
+    }
+
     /// Redraws the icon, optional percent label, and tooltip from a snapshot.
     /// Label color signals state: red when a limit is exhausted (blocking
     /// further queries), orange while polls are failing (numbers may be
     /// stale), normal otherwise.
     private func updateButton(with snapshot: UsageSnapshot?, hasError: Bool) {
         guard let button = statusItem.button else { return }
-        let showScoped = UserDefaults.standard.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
-        let limits = (snapshot?.limits ?? []).filter { showScoped || !$0.isScopedWeekly }
-        button.image = Self.makeIcon(limits: limits, claudeTracks: showScoped ? 3 : 2)
+        let content = Self.content(for: snapshot, showScopedWeekly: Self.showScopedWeekly())
+        button.image = Self.makeIcon(limits: content.limits, claudeTracks: content.claudeTracks)
         button.imagePosition = .imageLeading
 
-        if let title = Self.makeTitle(limits: limits, selection: .current(), hasError: hasError) {
+        if let title = Self.makeTitle(limits: content.limits, selection: .current(),
+                                      hasError: hasError) {
             button.attributedTitle = title
         } else {
             button.title = ""
         }
-
-        if limits.isEmpty {
-            button.toolTip = "Tokes — waiting for usage data"
-        } else {
-            let prefix = limits.contains { $0.provider == .copilot } ? "Usage — " : "Claude usage — "
-            button.toolTip = prefix + limits
-                .map { "\($0.label): \(Int($0.percent.rounded()))%" }
-                .joined(separator: " · ")
-        }
+        button.toolTip = content.toolTip
     }
 
     /// The percent text beside the icon for the selected measurement, or nil

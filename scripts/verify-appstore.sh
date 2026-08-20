@@ -77,10 +77,13 @@ fi
 # Counts only com.apple.security.* — a real submission also carries
 # com.apple.application-identifier and com.apple.developer.team-identifier,
 # derived from the provisioning profile at signing time, and those are expected.
+# A fail, not a warn: this is the check most likely to catch a compliance
+# regression introduced by a future feature, and appstore.sh gates packaging on
+# this script's exit status — a warning would sail straight through it.
 ENT_COUNT=$(grep -c '<key>com\.apple\.security' "$ENT_PLIST")
 [[ "$ENT_COUNT" -eq 3 ]] \
     && pass "exactly 3 com.apple.security entitlements, no more" \
-    || warn "$ENT_COUNT com.apple.security entitlements (expected 3) — review packaging/appstore/Tokes.entitlements"
+    || fail "$ENT_COUNT com.apple.security entitlements (expected 3) — review packaging/appstore/Tokes.entitlements"
 
 # ------------------------------------------------------------------- binary --
 head2 "Binary contains no out-of-container credential readers"
@@ -94,7 +97,9 @@ FORBIDDEN=(
     "find-generic-password"      # ditto
     "Claude Code-credentials"    # the foreign keychain service name
     "/opt/homebrew/bin/gh"       # shells out to the GitHub CLI
-    "/usr/local/bin/gh"
+    "/usr/local/bin/gh"          # ...same reader, second path it tries
+    "/usr/bin/gh"                # ...and the third. All three, or a refactor
+                                 #    that drops the first two audits clean.
     "/tmp/tokes-debug.log"       # a write outside the container
 )
 # grep -c, never grep -q: under `set -o pipefail` an early-exiting grep leaves

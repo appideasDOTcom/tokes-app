@@ -92,8 +92,10 @@ scripts/verify-appstore.sh           # static + runtime audit
 
 `scripts/test.sh` runs the suite twice, because `-DTOKES_APP_STORE` removes
 whole functions and the default configuration alone leaves that half unbuilt.
-178 tests direct, 175 App Store (the three fewer are the Copilot editor-lookup
-tests, guarded out with the reader they cover).
+237 tests direct, 234 App Store (the three fewer are the Copilot editor-lookup
+tests, guarded out with the reader they cover; two direct-build skips become
+real assertions on the App Store side, where the `sourceUnavailable` paths they
+cover actually exist).
 
 `scripts/verify-appstore.sh` checks the built artifact:
 

@@ -87,6 +87,120 @@ final class CopilotEditorTokenLookupTests: XCTestCase {
 
 #endif  // !TOKES_APP_STORE
 
+/// The Copilot half of `loadToken()`'s source dispatch — see
+/// `ClaudeCredentialDispatchTests` for why the `loadTokenOverride` suites do
+/// not reach it.
+final class CopilotCredentialDispatchTests: XCTestCase {
+    private let suite = "com.appideas.tokes.tests.copilotdispatch"
+    private let service = "com.appideas.tokes.tests"
+    private let account = "copilot-token-dispatch"
+    private var defaults: UserDefaults!
+    private var directory: URL!
+    private var provider: CopilotCredentialsProvider!
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        defaults = UserDefaults(suiteName: suite)
+        directory = TestFixtures.tempDirectory()
+        CredentialsProvider.deleteManualToken(service: service, account: account)
+
+        provider = CopilotCredentialsProvider()
+        provider.defaults = defaults
+        provider.manualService = service
+        provider.manualAccount = account
+        provider.importedFile = ImportedCredentialFile(
+            defaultsKey: "copilotDispatchBookmark", describing: "Copilot config", defaults: defaults)
+    }
+
+    override func tearDown() {
+        CredentialsProvider.deleteManualToken(service: service, account: account)
+        try? FileManager.default.removeItem(at: directory)
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        super.tearDown()
+    }
+
+    private func select(_ source: CopilotCredentialSource) {
+        defaults.set(source.rawValue, forKey: SettingsKeys.copilotCredentialSource)
+    }
+
+    private func importFile(_ body: String) throws {
+        let url = directory.appendingPathComponent("apps.json")
+        try Data(body.utf8).write(to: url)
+        try provider.importedFile.store(url)
+    }
+
+    func testManualSourceReadsTheCopilotKeychainSlot() throws {
+        select(.manual)
+        CredentialsProvider.saveManualToken("gh-pasted", service: service, account: account)
+
+        XCTAssertEqual(try provider.accessToken(), "gh-pasted")
+    }
+
+    /// The two providers share a keychain service and differ only by account,
+    /// so a Claude token must not satisfy a Copilot lookup.
+    func testTheClaudeTokenDoesNotSatisfyCopilot() {
+        select(.manual)
+        CredentialsProvider.saveManualToken("claude-token", service: service,
+                                            account: "oauth-token-dispatch")
+        defer {
+            CredentialsProvider.deleteManualToken(service: service, account: "oauth-token-dispatch")
+        }
+
+        XCTAssertThrowsError(try provider.accessToken()) { error in
+            XCTAssertEqual(error as? CopilotCredentialError, .manualMissing)
+        }
+    }
+
+    func testManualSourceWithNothingSavedIsActionable() {
+        select(.manual)
+        XCTAssertThrowsError(try provider.accessToken()) { error in
+            XCTAssertEqual(error as? CopilotCredentialError, .manualMissing)
+        }
+    }
+
+    func testImportedFileSourceReadsTheImportedConfig() throws {
+        select(.importedFile)
+        try importFile(#"{"github.com:Iv1.x":{"oauth_token":"ghu_imported"}}"#)
+
+        XCTAssertEqual(try provider.accessToken(), "ghu_imported")
+    }
+
+    func testImportedFileSourceWithNothingImported() {
+        select(.importedFile)
+        XCTAssertThrowsError(try provider.accessToken()) { error in
+            XCTAssertEqual(error as? ImportedFileError, .notImported("Copilot config"))
+        }
+    }
+
+    func testImportedFileSourceRejectsTheWrongFile() throws {
+        select(.importedFile)
+        try importFile(#"{"claudeAiOauth":{"accessToken":"wrong-tool"}}"#)
+
+        XCTAssertThrowsError(try provider.accessToken()) { error in
+            guard let error = error as? ImportedFileError else {
+                return XCTFail("expected ImportedFileError, got \(error)")
+            }
+            XCTAssertTrue(error.errorDescription!.contains("usable token"))
+        }
+    }
+
+    /// The equivalent of the Claude `claudeCode` case: an `editor` selection
+    /// carried in from the Homebrew build.
+    func testAStoredEditorSelectionIsHandledByThisBuild() throws {
+        defaults.set(CopilotCredentialSource.editor.rawValue,
+                     forKey: SettingsKeys.copilotCredentialSource)
+        try importFile(#"{"github.com":{"oauth_token":"gho_imported"}}"#)
+
+        #if TOKES_APP_STORE
+            XCTAssertEqual(try provider.accessToken(), "gho_imported",
+                           "the App Store build falls back to the source it does ship")
+        #else
+            XCTAssertEqual(CopilotCredentialSource.current(in: defaults), .editor)
+        #endif
+    }
+}
+
 private final class Counter {
     var value = 0
 }

@@ -97,6 +97,100 @@ final class StatusIconTests: XCTestCase {
     }
 }
 
+/// What the menu bar button is *given* — the half of `updateButton` that is not
+/// AppKit. `makeIcon` and `makeTitle` are asserted above; this is the step that
+/// decides which limits reach them, how many bar slots to reserve, and what the
+/// tooltip says.
+final class MenuBarContentTests: XCTestCase {
+    private let claude = [
+        TestFixtures.limit(id: "session", label: "Session (5 hr)", percent: 24.4, isSession: true),
+        TestFixtures.limit(id: "weekly_all", label: "Weekly (7 day)", percent: 60.5),
+        TestFixtures.limit(id: "weekly_scoped:Fable", label: "Weekly Fable", percent: 88),
+    ]
+
+    private func content(_ limits: [UsageLimit]?, showScopedWeekly: Bool = true)
+        -> StatusItemController.MenuBarContent {
+        StatusItemController.content(
+            for: limits.map { UsageSnapshot(limits: $0, fetchedAt: Date()) },
+            showScopedWeekly: showScopedWeekly)
+    }
+
+    // MARK: - The scoped-weekly setting
+
+    func testHidingTheScopedWeeklyDropsItAndItsBarSlot() {
+        let shown = content(claude)
+        XCTAssertEqual(shown.limits.map(\.id), ["session", "weekly_all", "weekly_scoped:Fable"])
+        XCTAssertEqual(shown.claudeTracks, 3)
+
+        let hidden = content(claude, showScopedWeekly: false)
+        XCTAssertEqual(hidden.limits.map(\.id), ["session", "weekly_all"])
+        // The reserved slot has to move with the filter, or the item's width
+        // jitters as buckets appear and disappear.
+        XCTAssertEqual(hidden.claudeTracks, 2)
+        XCTAssertEqual(StatusItemController.makeIcon(limits: hidden.limits,
+                                                     claudeTracks: hidden.claudeTracks).size.width,
+                       15)
+    }
+
+    func testHidingTheScopedWeeklyLeavesCopilotAlone() {
+        let hidden = content(claude + [TestFixtures.copilotLimit(percent: 12)],
+                             showScopedWeekly: false)
+        XCTAssertEqual(hidden.limits.map(\.id), ["session", "weekly_all", "copilot_premium"])
+    }
+
+    func testEveryScopedBucketIsHiddenTogether() {
+        let two = claude + [TestFixtures.limit(id: "weekly_scoped:Opus", percent: 12)]
+        XCTAssertEqual(content(two, showScopedWeekly: false).limits.map(\.id),
+                       ["session", "weekly_all"])
+        XCTAssertEqual(content(two).limits.count, 4)
+    }
+
+    func testTheSettingDefaultsToOnWhenNeverSet() {
+        let suite = "TokesTests-scoped-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(StatusItemController.showScopedWeekly(in: defaults))
+        defaults.set(false, forKey: SettingsKeys.showScopedWeekly)
+        XCTAssertFalse(StatusItemController.showScopedWeekly(in: defaults))
+        defaults.set(true, forKey: SettingsKeys.showScopedWeekly)
+        XCTAssertTrue(StatusItemController.showScopedWeekly(in: defaults))
+    }
+
+    // MARK: - Tooltip
+
+    func testTooltipBeforeTheFirstPoll() {
+        XCTAssertEqual(content(nil).toolTip, "Tokes — waiting for usage data")
+        XCTAssertEqual(content([]).toolTip, "Tokes — waiting for usage data")
+    }
+
+    func testTooltipNamesClaudeWhileItIsTheOnlyProvider() {
+        XCTAssertEqual(content(claude).toolTip,
+                       "Claude usage — Session (5 hr): 24% · Weekly (7 day): 61% · Weekly Fable: 88%")
+    }
+
+    /// With two services reporting, "Claude usage" would be wrong for half the
+    /// numbers, so the prefix drops the brand.
+    func testTooltipDropsTheBrandOnceCopilotIsReporting() {
+        let toolTip = content(claude + [TestFixtures.copilotLimit(percent: 12)]).toolTip
+        XCTAssertTrue(toolTip.hasPrefix("Usage — "), toolTip)
+        XCTAssertFalse(toolTip.contains("Claude usage"))
+        XCTAssertTrue(toolTip.hasSuffix("Copilot Premium: 12%"), toolTip)
+    }
+
+    func testTooltipRoundsHalfUpLikeTheMenuBarLabel() {
+        // 60.5 → 61 in both places; a tooltip that truncated would disagree
+        // with the number beside the icon.
+        XCTAssertTrue(content(claude).toolTip.contains("Weekly (7 day): 61%"))
+        XCTAssertEqual(StatusItemController.makeTitle(limits: claude, selection: .weeklyAll,
+                                                      hasError: false)?.string, " 61%")
+    }
+
+    func testTooltipFollowsTheScopedWeeklySetting() {
+        XCTAssertFalse(content(claude, showScopedWeekly: false).toolTip.contains("Weekly Fable"))
+    }
+}
+
 final class DebugLogTests: XCTestCase {
     private var logURL: URL!
     private var originalURL: URL!

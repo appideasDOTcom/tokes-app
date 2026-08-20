@@ -117,7 +117,8 @@ response mapping and date parsing for both providers (Claude usage and Copilot
 entitlement), the HTTP layers (via a mock `URLProtocol` — no network), history
 persistence/pruning (temp directories), credential parsing/caching for both Claude Code
 and Copilot config files plus the manual keychain item (a test-only service, never the
-real one), poller behavior (retry-on-401, 429 backoff, staleness gating, in-flight
+real one — including `SettingsView`, whose `onAppear` reads that slot on every render
+and is pointed at the test service for exactly that reason), poller behavior (retry-on-401, 429 backoff, staleness gating, in-flight
 coalescing, dual-provider merging with stale carry-forward — via injected mocks), the
 menu bar icon (including rasterized pixel checks of severity colors and the provider
 divider), chart downsampling, settings defaults, hosting-controller smoke tests of
@@ -126,7 +127,10 @@ compiles under `actool` into both shipping forms, with the plist keys the bundle
 needs — all failure modes there are silent ones), and the distribution/capability
 layer (which credential sources each build offers, the security-scoped bookmark
 round-trip including token rotation and atomic replacement, and the build-vs-runtime
-sandbox audit). Tests touch no live credentials and make no network calls.
+sandbox audit), the credential-source dispatch for both providers, and the Test
+Connection buttons' resolve-fetch-report path. Tests touch no live credentials and make
+no network calls; the suite is not safe under `swift test --parallel`, which runs each
+class in its own process against shared `UserDefaults` suites.
 
 `scripts/test.sh` runs the suite twice, because the App Store configuration
 compiles with `-DTOKES_APP_STORE` and that removes whole functions — the default

@@ -101,5 +101,7 @@ rejects a duplicate even when the marketing version is unchanged. Uploading does
 not submit for review; the build waits in App Store Connect until a human
 submits it.
 
-Both pipelines have to keep working; `scripts/test.sh` runs the suite in both
-configurations and CI audits the App Store build on every tagged release.
+Both pipelines have to keep working. `scripts/test.sh` runs the suite in both
+configurations, and two workflows enforce it: `ci.yml` runs the suite plus the
+App Store audit on every push to `main`/`develop` and every pull request, and
+`release.yml` runs both again on a tag before it builds anything.

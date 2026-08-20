@@ -41,6 +41,15 @@ final class UsagePoller {
     /// backoff). Copilot polling is unaffected.
     private var claudeBackoffUntil: Date?
     private var rateLimitStreak = 0
+    /// When each provider last returned fresh data, so a snapshot carrying one
+    /// provider's stale limits forward can be stamped with the age of the
+    /// oldest data it actually contains — see `tick()`.
+    private var lastFetch: [UsageProvider: Date] = [:]
+
+    /// Test seam: the clock every deadline in this class is measured against.
+    /// Replacing it is the only way to exercise a backoff window expiring
+    /// without the test sleeping for it.
+    var now: () -> Date = { Date() }
 
     /// Creates a poller that publishes into `state` and records samples to `history`.
     init(state: AppState, history: HistoryStore,
@@ -106,11 +115,15 @@ final class UsagePoller {
     @discardableResult
     func refreshIfStale(olderThan seconds: TimeInterval = 30) -> Bool {
         // No opportunistic refreshes during a 429 backoff.
-        if let until = claudeBackoffUntil, Date() < until {
+        if let until = claudeBackoffUntil, now() < until {
             return false
         }
+        // `fetchedAt` is the age of the *oldest* data in the snapshot, so while
+        // one provider is failing this stays stale and every popover opening
+        // retries it. That is the intent: the user looking is the best moment
+        // to try again, and the 429 window above still suppresses it.
         if let fetchedAt = state.snapshot?.fetchedAt,
-           Date().timeIntervalSince(fetchedAt) <= seconds {
+           now().timeIntervalSince(fetchedAt) <= seconds {
             return false
         }
         refreshNow()
@@ -165,44 +178,63 @@ final class UsagePoller {
         var freshValues: [String: Double] = [:]
         var errors: [String] = []
         var anySuccess = false
-        var fetchedAt = Date()
+
+        // The published snapshot is stamped with the age of the *oldest* data
+        // it contains, not with "now". A tick where Copilot succeeds and Claude
+        // does not carries hour-old Claude numbers forward, and stamping that
+        // "just now" would make the popover's "Updated N ago" claim a freshness
+        // half the snapshot does not have. `lastFetch` is the exact per-provider
+        // time; `state.snapshot?.fetchedAt` covers the first tick after the
+        // snapshot was set from outside (tests, and a future restore).
+        var oldest: Date?
+        let previousFetch = state.snapshot?.fetchedAt
+        func stamp(_ date: Date?) {
+            guard let date else { return }
+            oldest = min(oldest ?? date, date)
+        }
 
         switch claude {
         case .success(let fresh):
             anySuccess = true
             rateLimitStreak = 0
             claudeBackoffUntil = nil
-            fetchedAt = fresh.fetchedAt
+            lastFetch[.claude] = fresh.fetchedAt
+            stamp(fresh.fetchedAt)
             limits += fresh.limits
             fresh.limits.forEach { freshValues[$0.id] = $0.percent }
         case .failure(let error):
             // Keep the last Claude limits visible; just surface the error.
-            limits += previousLimits(for: .claude)
+            let carried = previousLimits(for: .claude)
+            limits += carried
+            if !carried.isEmpty { stamp(lastFetch[.claude] ?? previousFetch) }
             if case UsageError.rateLimited(let retryAfter) = error {
                 rateLimitStreak += 1
-                // Honor Retry-After; otherwise 90 s doubling per consecutive
-                // 429, capped at 15 min.
-                let delay = retryAfter
-                    ?? min(90 * pow(2, Double(rateLimitStreak - 1)), 900)
-                claudeBackoffUntil = Date().addingTimeInterval(delay)
+                claudeBackoffUntil = now().addingTimeInterval(
+                    Self.backoffDelay(retryAfter: retryAfter, streak: rateLimitStreak))
             }
             errors.append(error.localizedDescription)
             DebugLog.log("Tokes: Claude tick failed: \(error)")
         case nil:
             // Backing off after a 429 — no request made; keep last limits
             // and the banner until the window passes.
-            limits += previousLimits(for: .claude)
-            errors.append(UsageError.rateLimited(retryAfter: nil).localizedDescription ?? "")
+            let carried = previousLimits(for: .claude)
+            limits += carried
+            if !carried.isEmpty { stamp(lastFetch[.claude] ?? previousFetch) }
+            errors.append(UsageError.rateLimited(retryAfter: nil).localizedDescription)
         }
 
         if let copilot {
             switch copilot {
             case .success(let limit):
                 anySuccess = true
+                lastFetch[.copilot] = now()
+                stamp(lastFetch[.copilot])
                 limits.append(limit)
                 freshValues[limit.id] = limit.percent
             case .failure(let error):
-                limits += previousLimits(for: .copilot)
+                let carried = previousLimits(for: .copilot)
+                limits += carried
+                if !carried.isEmpty { stamp(lastFetch[.copilot] ?? previousFetch) }
                 errors.append(error.localizedDescription)
                 DebugLog.log("Tokes: Copilot tick failed: \(error)")
             }
@@ -211,12 +243,32 @@ final class UsagePoller {
         // Publish only when something succeeded; on total failure the previous
         // snapshot (and its fetchedAt) stays as-is.
         if anySuccess {
+            let fetchedAt = oldest ?? now()
             state.snapshot = UsageSnapshot(limits: limits, fetchedAt: fetchedAt)
-            let sample = UsageSample(t: fetchedAt, v: freshValues)
-            history.append(sample)
+            // The sample records what was fetched *this* tick, so it is stamped
+            // with now regardless of what stale limits rode along in the
+            // snapshot — a history point must sit at the time it was measured.
+            history.append(UsageSample(t: now(), v: freshValues))
             state.samples = history.samples
         }
         state.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    /// How long Claude polling pauses after a 429.
+    ///
+    /// `Retry-After` is honored but clamped, in both directions, because both
+    /// ends are reachable from a server answer alone: a `0` or a past date
+    /// (which `Double.init` reads as `0`/negative) would leave no backoff at
+    /// all and put Tokes back on the endpoint at the next tick, and a value
+    /// like `1e9` would park polling for the life of the process. Absent or
+    /// unparsable — including the RFC 9110 HTTP-date form, which Tokes does not
+    /// read — it is 90 s doubling per consecutive 429.
+    ///
+    /// The floor is one poll interval's worth of patience; the ceiling is the
+    /// same 15 min the doubling schedule caps at.
+    static func backoffDelay(retryAfter: TimeInterval?, streak: Int) -> TimeInterval {
+        if let retryAfter { return min(max(retryAfter, 30), 900) }
+        return min(90 * pow(2, Double(max(streak, 1) - 1)), 900)
     }
 
     /// The current snapshot's limits for one provider (used to carry stale
@@ -228,7 +280,7 @@ final class UsagePoller {
     /// Claude fetch wrapped in a Result for concurrent merging; nil while a
     /// 429 backoff window is active (no request is made).
     private func claudeResult() async -> Result<UsageSnapshot, Error>? {
-        if let until = claudeBackoffUntil, Date() < until { return nil }
+        if let until = claudeBackoffUntil, now() < until { return nil }
         do {
             return .success(try await fetchWithRetry())
         } catch {

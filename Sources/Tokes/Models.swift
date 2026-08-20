@@ -40,13 +40,21 @@ enum MenuBarLabel: String, CaseIterable {
 
     /// The limit this option names, or nil when the snapshot doesn't report it
     /// (Copilot off, plan without a model-scoped weekly, nothing polled yet).
+    ///
+    /// A plan can meter more than one model, so `weeklyScoped` picks the
+    /// *highest* of the scoped buckets rather than the first one the API
+    /// listed. Taking the first would make the menu bar number depend on
+    /// response ordering — which `UsageClient.mapLimits` does not guarantee,
+    /// since every scoped bucket sorts to the same rank — and would silently
+    /// hide the model the user is closest to exhausting, which is the one
+    /// question this readout exists to answer.
     func limit(in limits: [UsageLimit]) -> UsageLimit? {
         switch self {
         case .off: return nil
         case .highest: return limits.max { $0.percent < $1.percent }
         case .session: return limits.first { $0.id == "session" }
         case .weeklyAll: return limits.first { $0.id == "weekly_all" }
-        case .weeklyScoped: return limits.first { $0.isScopedWeekly }
+        case .weeklyScoped: return limits.filter(\.isScopedWeekly).max { $0.percent < $1.percent }
         case .copilot: return limits.first { $0.provider == .copilot }
         }
     }
@@ -227,6 +235,14 @@ struct UsageSnapshot: Equatable {
 }
 
 /// A single point of sampled history: limit id -> percent
+///
+/// Keying on the limit id means a model-scoped bucket's history is keyed on the
+/// model's *display name* (`weekly_scoped:Fable`), so renaming a model starts a
+/// new series and the old one ages out unread. That is deliberate: a renamed
+/// model is a different bucket as far as the API is concerned, two scoped
+/// buckets must not collide into one series, and the chart says
+/// "Collecting history…" rather than pretending the old points belong to the
+/// new model. Pinned by `UsageSampleKeyingTests`.
 struct UsageSample: Codable {
     let t: Date
     let v: [String: Double]

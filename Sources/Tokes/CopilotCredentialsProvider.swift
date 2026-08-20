@@ -43,13 +43,24 @@ final class CopilotCredentialsProvider: TokenProviding {
         defaultsKey: SettingsKeys.copilotCredentialFile,
         describing: "Copilot config")
 
+    /// Where the selected credential source is read from; injectable so the
+    /// source dispatch below can be driven without touching the real domain.
+    var defaults: UserDefaults = .standard
+
+    /// The keychain slot the manual token lives in. Injectable so a test can
+    /// exercise `.manual` without reading the item the installed app owns.
+    var manualService = CredentialsProvider.manualService
+    var manualAccount = CopilotCredentialsProvider.manualAccount
+
     private var cachedToken: String?
 
-    /// Test seam: replaces credential lookup when set.
+    /// Test seam: replaces credential lookup when set. Note that this bypasses
+    /// `loadToken()` entirely — anything asserting *source dispatch* has to
+    /// leave it nil and set `defaults` instead.
     var loadTokenOverride: (() throws -> String)?
 
     private var source: CopilotCredentialSource {
-        CopilotCredentialSource.current()
+        CopilotCredentialSource.current(in: defaults)
     }
 
     /// Drops the cached token so the next poll re-reads credentials.
@@ -75,7 +86,8 @@ final class CopilotCredentialsProvider: TokenProviding {
     private func loadToken() throws -> String {
         switch source {
         case .manual:
-            guard let token = CredentialsProvider.readManualToken(account: Self.manualAccount),
+            guard let token = CredentialsProvider.readManualToken(service: manualService,
+                                                                  account: manualAccount),
                   !token.isEmpty else {
                 throw CopilotCredentialError.manualMissing
             }

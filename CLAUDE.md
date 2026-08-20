@@ -121,7 +121,30 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
 - Tests must make no network calls (use `MockURLProtocol`) and never touch real
   credentials. Keychain tests use the test-only service `"com.appideas.tokes.tests"`;
   the real manual-token slot (service `"com.appideas.tokes"`, account `"copilot-token"`)
-  is off-limits to tests.
+  is off-limits to tests. **`SettingsView` is the trap here**: its `onAppear`
+  reads both manual-token accounts and resolves both imported-file bookmarks on
+  every render, so anything that hosts it must pass `keychainService:` and
+  `bookmarkDefaults:`. It silently read the real slot 76 times per run until
+  those existed.
+- **`loadTokenOverride` bypasses `loadToken()` entirely** — it is checked first.
+  A test that sets it proves caching and nothing about *source dispatch*; for
+  that, leave it nil and inject `defaults` / `manualService` / `importedFile`
+  (see `ClaudeCredentialDispatchTests`).
+- **The suite is not safe under `swift test --parallel`.** Classes run in
+  separate processes but share `UserDefaults` suite files on disk, so a fixed
+  suite name collides across workers — `ImportedCredentialFileTests` and
+  `CredentialSourceDefaultsTests` still use fixed names and fail there. Use a
+  UUID in the suite name, as `AppDelegateTests` does.
+- **`Retry-After` is clamped to 30…900 s** (`UsagePoller.backoffDelay`). Both
+  ends are reachable from a server answer alone: `0` or a past HTTP-date left no
+  backoff at all and put Tokes straight back on a 429ing endpoint, and `1e9`
+  parked polling for the life of the process. `UsagePoller.now` is the clock
+  seam that lets a test walk a window without sleeping.
+- **A snapshot's `fetchedAt` is the age of the *oldest* data it holds**, not the
+  time of the tick — a Copilot-only success carrying hour-old Claude limits
+  forward must not read "Updated just now". `refreshIfStale` reads the same
+  field, so a provider outage means every popover opening retries; that is
+  intended.
 - Never run git commit/push/tag — the user handles all of git.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).

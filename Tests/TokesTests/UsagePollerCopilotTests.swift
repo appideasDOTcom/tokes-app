@@ -152,6 +152,63 @@ final class UsagePollerCopilotTests: XCTestCase {
         XCTAssertEqual(state.errorMessage, CopilotCredentialError.notFound.errorDescription)
     }
 
+    // MARK: - Snapshot freshness
+
+    /// The footer's "Updated N ago" must describe the *oldest* thing on screen.
+    /// A Copilot-only success that stamped the merged snapshot "now" would
+    /// claim a freshness the carried-forward Claude limits do not have.
+    @MainActor
+    func testPartialFailureKeepsTheOlderTimestamp() async {
+        let old = Date().addingTimeInterval(-7200)
+        state.snapshot = UsageSnapshot(limits: [TestFixtures.limit(id: "session", percent: 7)],
+                                       fetchedAt: old)
+        client.results = [.failure(UsageError.http(500))]
+        copilotClient.results = [.success(TestFixtures.copilotLimit(percent: 3))]
+
+        await poller.tick()
+
+        XCTAssertEqual(state.snapshot?.limits.map(\.id), ["session", "copilot_premium"])
+        XCTAssertEqual(state.snapshot?.fetchedAt.timeIntervalSince1970 ?? 0,
+                       old.timeIntervalSince1970, accuracy: 1,
+                       "the two-hour-old Claude limits set the snapshot's age")
+        // The history point still records when it was *measured*, not the age
+        // of the stale limits riding along beside it.
+        XCTAssertEqual(state.samples.last?.v, ["copilot_premium": 3])
+        XCTAssertEqual(state.samples.last?.t.timeIntervalSince1970 ?? 0,
+                       Date().timeIntervalSince1970, accuracy: 5)
+    }
+
+    /// Once the failing provider recovers, the snapshot is fresh again.
+    @MainActor
+    func testRecoveryRestoresAFreshTimestamp() async {
+        state.snapshot = UsageSnapshot(limits: [TestFixtures.limit(id: "session", percent: 7)],
+                                       fetchedAt: Date().addingTimeInterval(-7200))
+        client.results = [.failure(UsageError.http(500)),
+                          .success(TestFixtures.snapshot(percents: ["session": 8]))]
+        copilotClient.results = [.success(TestFixtures.copilotLimit(percent: 3)),
+                                 .success(TestFixtures.copilotLimit(percent: 4))]
+
+        await poller.tick()
+        await poller.tick()
+
+        XCTAssertEqual(Date().timeIntervalSince(state.snapshot!.fetchedAt), 0, accuracy: 5)
+    }
+
+    /// With both providers reporting, the snapshot is as old as the older of
+    /// the two — not as old as whichever one was merged last.
+    @MainActor
+    func testBothSucceedingUsesTheOlderOfTheTwoFetches() async {
+        let claudeTime = Date().addingTimeInterval(-45)
+        client.results = [.success(TestFixtures.snapshot(percents: ["session": 1],
+                                                         fetchedAt: claudeTime))]
+        copilotClient.results = [.success(TestFixtures.copilotLimit(percent: 2))]
+
+        await poller.tick()
+
+        XCTAssertEqual(state.snapshot?.fetchedAt.timeIntervalSince1970 ?? 0,
+                       claudeTime.timeIntervalSince1970, accuracy: 1)
+    }
+
     @MainActor
     func testCredentialsChangedInvalidatesBothProviders() {
         client.results = [.success(TestFixtures.snapshot(percents: ["session": 1]))]

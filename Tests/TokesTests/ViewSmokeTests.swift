@@ -7,6 +7,19 @@ import XCTest
 /// Hosting-controller smoke tests: each view builds, lays out, and reports a
 /// sensible fitting size for its state.
 final class ViewSmokeTests: XCTestCase {
+    /// `SettingsView.onAppear` reads the manual-token keychain slot on every
+    /// render, and this suite renders it 38 times. Pointed at the test-only
+    /// service so a suite run never reads the item the installed app owns.
+    static let keychainService = "com.appideas.tokes.tests"
+    /// Same reasoning for the imported-file bookmarks `onAppear` resolves.
+    static let bookmarks = UserDefaults(suiteName: "com.appideas.tokes.tests.viewsmoke")!
+
+    /// Settings pointed at the test-only keychain slot and bookmark domain.
+    private func settingsView() -> SettingsView {
+        SettingsView(onCredentialsChanged: {}, keychainService: Self.keychainService,
+                     bookmarkDefaults: Self.bookmarks)
+    }
+
     private func makeState(withSnapshot: Bool = true, error: String? = nil,
                            withCopilot: Bool = false) -> AppState {
         let state = AppState()
@@ -98,7 +111,7 @@ final class ViewSmokeTests: XCTestCase {
 
     @MainActor
     func testSettingsViewLoads() {
-        let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+        let hosting = NSHostingController(rootView: settingsView())
         XCTAssertNotNil(hosting.view)
         XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1)
     }
@@ -118,13 +131,48 @@ final class ViewSmokeTests: XCTestCase {
                 UserDefaults.standard.set(scoped, forKey: SettingsKeys.showScopedWeekly)
                 for option in MenuBarLabel.allCases {
                     UserDefaults.standard.set(option.rawValue, forKey: SettingsKeys.menuBarLabel)
-                    let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+                    let hosting = NSHostingController(rootView: settingsView())
                     hosting.view.layoutSubtreeIfNeeded()
                     XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
                                    "\(option) / copilot=\(copilot) scoped=\(scoped)")
                 }
             }
         }
+    }
+
+    /// Opening Settings must repair a stored credential source this build does
+    /// not ship — the shape a `defaults` domain copied in from the Homebrew
+    /// build has. The normalization ran before this test existed; nothing read
+    /// the result back, so the guard was executed but unproven.
+    @MainActor
+    func testOpeningSettingsRepairsASourceThisBuildDoesNotShip() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.credentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
+        }
+        UserDefaults.standard.set(CredentialSource.claudeCode.rawValue,
+                                  forKey: SettingsKeys.credentialSource)
+        UserDefaults.standard.set(CopilotCredentialSource.editor.rawValue,
+                                  forKey: SettingsKeys.copilotCredentialSource)
+
+        let hosting = NSHostingController(rootView: settingsView())
+        hosting.view.layoutSubtreeIfNeeded()  // fires onAppear
+
+        let claude = UserDefaults.standard.string(forKey: SettingsKeys.credentialSource)
+        let copilot = UserDefaults.standard.string(forKey: SettingsKeys.copilotCredentialSource)
+        #if TOKES_APP_STORE
+            XCTAssertEqual(claude, CredentialSource.importedFile.rawValue,
+                           "the App Store build must not stay pointed at a reader it lacks")
+            XCTAssertEqual(copilot, CopilotCredentialSource.importedFile.rawValue)
+        #else
+            XCTAssertEqual(claude, CredentialSource.claudeCode.rawValue,
+                           "the direct build ships this reader and must keep the choice")
+            XCTAssertEqual(copilot, CopilotCredentialSource.editor.rawValue)
+        #endif
+        // Whatever the build, the stored value names a source it offers.
+        XCTAssertTrue(CredentialSource.available().contains(CredentialSource(rawValue: claude!)!))
+        XCTAssertTrue(CopilotCredentialSource.available()
+            .contains(CopilotCredentialSource(rawValue: copilot!)!))
     }
 
     /// Every credential source renders its own controls — the import buttons and
@@ -142,7 +190,7 @@ final class ViewSmokeTests: XCTestCase {
             for copilot in CopilotCredentialSource.allCases {
                 UserDefaults.standard.set(claude.rawValue, forKey: SettingsKeys.credentialSource)
                 UserDefaults.standard.set(copilot.rawValue, forKey: SettingsKeys.copilotCredentialSource)
-                let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+                let hosting = NSHostingController(rootView: settingsView())
                 hosting.view.layoutSubtreeIfNeeded()
                 XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
                                "claude=\(claude) copilot=\(copilot)")

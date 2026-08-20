@@ -11,6 +11,17 @@ import SwiftUI
 struct SettingsView: View {
     let onCredentialsChanged: () -> Void
 
+    /// The keychain slot the manual-token fields read and write. Injectable so
+    /// a test that renders this view does not read the item the installed app
+    /// owns — `onAppear` reads both accounts on every render.
+    var keychainService = CredentialsProvider.manualService
+    /// Domain the imported-file bookmarks live in. Injectable for the same
+    /// reason: `onAppear` resolves both bookmarks to show their paths, and a
+    /// test has no business resolving the real ones.
+    var bookmarkDefaults: UserDefaults = .standard
+    /// Session the Test Connection buttons use; injectable for tests.
+    var testSession: URLSession = .shared
+
     @AppStorage(SettingsKeys.refreshInterval) private var refreshInterval: Double = 60
     @AppStorage(SettingsKeys.menuBarLabel) private var menuBarLabel = MenuBarLabel.off.rawValue
     @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.defaultSource().rawValue
@@ -34,10 +45,17 @@ struct SettingsView: View {
     @State private var copilotImportError: String?
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
-    private let claudeFile = ImportedCredentialFile(
-        defaultsKey: SettingsKeys.claudeCredentialFile, describing: "Claude Code credentials")
-    private let copilotFile = ImportedCredentialFile(
-        defaultsKey: SettingsKeys.copilotCredentialFile, describing: "Copilot config")
+    /// Computed rather than stored so they can pick up `bookmarkDefaults`;
+    /// `ImportedCredentialFile` keeps no state of its own beyond that domain,
+    /// so rebuilding one per access costs nothing.
+    private var claudeFile: ImportedCredentialFile {
+        ImportedCredentialFile(defaultsKey: SettingsKeys.claudeCredentialFile,
+                               describing: "Claude Code credentials", defaults: bookmarkDefaults)
+    }
+    private var copilotFile: ImportedCredentialFile {
+        ImportedCredentialFile(defaultsKey: SettingsKeys.copilotCredentialFile,
+                               describing: "Copilot config", defaults: bookmarkDefaults)
+    }
 
     /// Menu bar options offered for the current Copilot / scoped-weekly toggles.
     private var availableLabels: [MenuBarLabel] {
@@ -133,8 +151,9 @@ struct SettingsView: View {
         .frame(width: 460, height: 620)
         .onAppear {
             normalizeCredentialSources()
-            manualToken = CredentialsProvider.readManualToken() ?? ""
+            manualToken = CredentialsProvider.readManualToken(service: keychainService) ?? ""
             copilotToken = CredentialsProvider.readManualToken(
+                service: keychainService,
                 account: CopilotCredentialsProvider.manualAccount) ?? ""
             claudeImportPath = claudeFile.displayPath
             copilotImportPath = copilotFile.displayPath
@@ -183,7 +202,8 @@ struct SettingsView: View {
             SecureField("OAuth access token", text: $manualToken)
             HStack(spacing: 8) {
                 Button("Save Token") {
-                    tokenSaved = CredentialsProvider.saveManualToken(manualToken)
+                    tokenSaved = CredentialsProvider.saveManualToken(manualToken,
+                                                                     service: keychainService)
                     onCredentialsChanged()
                 }
                 .disabled(manualToken.isEmpty)
@@ -221,7 +241,8 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Button("Save Token") {
                     copilotTokenSaved = CredentialsProvider.saveManualToken(
-                        copilotToken, account: CopilotCredentialsProvider.manualAccount)
+                        copilotToken, service: keychainService,
+                        account: CopilotCredentialsProvider.manualAccount)
                     onCredentialsChanged()
                 }
                 .disabled(copilotToken.isEmpty)
@@ -312,6 +333,77 @@ struct SettingsView: View {
 
     // MARK: - Connection tests
 
+    /// The outcome of one Test Connection press: what the inline label says and
+    /// whether it says it in green.
+    struct TestOutcome: Equatable {
+        let passed: Bool
+        let message: String
+    }
+
+    /// Everything a Claude Test Connection press does, minus the `@State`
+    /// bookkeeping — resolve a token from the selected source, fetch once, and
+    /// turn either result into the line the user reads.
+    ///
+    /// Extracted from the button because a button in a view that is never
+    /// rendered into a window can never be pressed, and this is the only
+    /// self-diagnostic the app has. The `session` parameter is why it can be
+    /// tested at all: the button used to build `UsageClient()` inline, which
+    /// takes `.shared`.
+    static func claudeTestOutcome(source: CredentialSource,
+                                  pastedToken: String,
+                                  file: ImportedCredentialFile,
+                                  session: URLSession) async -> TestOutcome {
+        do {
+            let token: String
+            switch source {
+            case .manual:
+                guard !pastedToken.isEmpty else { throw CredentialError.manualMissing }
+                token = pastedToken
+            case .importedFile:
+                token = try CredentialsProvider.loadImportedToken(from: file).0
+            case .claudeCode:
+                #if TOKES_APP_STORE
+                    throw CredentialError.sourceUnavailable
+                #else
+                    token = try CredentialsProvider.loadClaudeCodeToken().0
+                #endif
+            }
+            let snapshot = try await UsageClient(session: session).fetch(token: token)
+            return TestOutcome(passed: true,
+                               message: "Connected — \(snapshot.limits.count) limits reported")
+        } catch {
+            return TestOutcome(passed: false, message: error.localizedDescription)
+        }
+    }
+
+    /// The Copilot half of `claudeTestOutcome`, same reasoning.
+    static func copilotTestOutcome(source: CopilotCredentialSource,
+                                   pastedToken: String,
+                                   file: ImportedCredentialFile,
+                                   session: URLSession) async -> TestOutcome {
+        do {
+            let token: String
+            switch source {
+            case .manual:
+                guard !pastedToken.isEmpty else { throw CopilotCredentialError.manualMissing }
+                token = pastedToken
+            case .importedFile:
+                token = try CopilotCredentialsProvider.loadImportedToken(from: file)
+            case .editor:
+                #if TOKES_APP_STORE
+                    throw CopilotCredentialError.sourceUnavailable
+                #else
+                    token = try CopilotCredentialsProvider().loadEditorToken()
+                #endif
+            }
+            let limit = try await CopilotClient(session: session).fetch(token: token)
+            let detail = limit.detail ?? "\(Int(limit.percent.rounded()))% used"
+            return TestOutcome(passed: true, message: "Connected — \(detail)")
+        } catch {
+            return TestOutcome(passed: false, message: error.localizedDescription)
+        }
+    }
+
     /// Fetches Copilot usage once with the selected credentials and reports the result inline.
     private func testCopilotConnection() {
         copilotTesting = true
@@ -319,34 +411,14 @@ struct SettingsView: View {
         let source = CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .manual
         let pastedToken = copilotToken
         let file = copilotFile
+        let session = testSession
         Task {
-            do {
-                let token: String
-                switch source {
-                case .manual:
-                    guard !pastedToken.isEmpty else { throw CopilotCredentialError.manualMissing }
-                    token = pastedToken
-                case .importedFile:
-                    token = try CopilotCredentialsProvider.loadImportedToken(from: file)
-                case .editor:
-                    #if TOKES_APP_STORE
-                        throw CopilotCredentialError.sourceUnavailable
-                    #else
-                        token = try CopilotCredentialsProvider().loadEditorToken()
-                    #endif
-                }
-                let limit = try await CopilotClient().fetch(token: token)
-                await MainActor.run {
-                    copilotTestPassed = true
-                    copilotTestResult = "Connected — \(limit.detail ?? "\(Int(limit.percent.rounded()))% used")"
-                    copilotTesting = false
-                }
-            } catch {
-                await MainActor.run {
-                    copilotTestPassed = false
-                    copilotTestResult = error.localizedDescription
-                    copilotTesting = false
-                }
+            let outcome = await Self.copilotTestOutcome(source: source, pastedToken: pastedToken,
+                                                        file: file, session: session)
+            await MainActor.run {
+                copilotTestPassed = outcome.passed
+                copilotTestResult = outcome.message
+                copilotTesting = false
             }
         }
     }
@@ -358,34 +430,14 @@ struct SettingsView: View {
         let source = CredentialSource(rawValue: credentialSource) ?? .manual
         let pastedToken = manualToken
         let file = claudeFile
+        let session = testSession
         Task {
-            do {
-                let token: String
-                switch source {
-                case .manual:
-                    guard !pastedToken.isEmpty else { throw CredentialError.manualMissing }
-                    token = pastedToken
-                case .importedFile:
-                    token = try CredentialsProvider.loadImportedToken(from: file).0
-                case .claudeCode:
-                    #if TOKES_APP_STORE
-                        throw CredentialError.sourceUnavailable
-                    #else
-                        token = try CredentialsProvider.loadClaudeCodeToken().0
-                    #endif
-                }
-                let snapshot = try await UsageClient().fetch(token: token)
-                await MainActor.run {
-                    testPassed = true
-                    testResult = "Connected — \(snapshot.limits.count) limits reported"
-                    testing = false
-                }
-            } catch {
-                await MainActor.run {
-                    testPassed = false
-                    testResult = error.localizedDescription
-                    testing = false
-                }
+            let outcome = await Self.claudeTestOutcome(source: source, pastedToken: pastedToken,
+                                                       file: file, session: session)
+            await MainActor.run {
+                testPassed = outcome.passed
+                testResult = outcome.message
+                testing = false
             }
         }
     }

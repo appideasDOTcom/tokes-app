@@ -53,14 +53,26 @@ final class CredentialsProvider {
         defaultsKey: SettingsKeys.claudeCredentialFile,
         describing: "Claude Code credentials")
 
+    /// Where the selected credential source is read from; injectable so the
+    /// source dispatch below can be driven without touching the real domain.
+    var defaults: UserDefaults = .standard
+
+    /// The keychain slot the manual token lives in. Injectable for the same
+    /// reason: a test must be able to exercise `.manual` end to end without
+    /// reading the item the installed app owns.
+    var manualService = CredentialsProvider.manualService
+    var manualAccount = CredentialsProvider.manualAccount
+
     private var cachedToken: String?
     private var cachedExpiry: Date?
 
-    /// Test seam: replaces credential lookup when set.
+    /// Test seam: replaces credential lookup when set. Note that this bypasses
+    /// `loadToken()` entirely — anything asserting *source dispatch* has to
+    /// leave it nil and set `defaults` instead.
     var loadTokenOverride: (() throws -> (String, Date?))?
 
     private var source: CredentialSource {
-        CredentialSource.current()
+        CredentialSource.current(in: defaults)
     }
 
     /// Drops the cached token so the next poll re-reads credentials.
@@ -92,7 +104,8 @@ final class CredentialsProvider {
     private func loadToken() throws -> (String, Date?) {
         switch source {
         case .manual:
-            guard let token = Self.readManualToken(), !token.isEmpty else {
+            guard let token = Self.readManualToken(service: manualService, account: manualAccount),
+                  !token.isEmpty else {
                 throw CredentialError.manualMissing
             }
             return (token, nil)

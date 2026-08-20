@@ -63,6 +63,28 @@ final class UsageResponseMappingTests: XCTestCase {
         XCTAssertEqual(snap.limits[0].label, "Weekly Model")
     }
 
+    /// A plan metering two models sends two `weekly_scoped` entries. They must
+    /// come through as separate buckets — one id each, both after the two
+    /// unscoped limits — rather than one overwriting the other.
+    func testTwoScopedWeekliesBothSurviveWithDistinctIds() throws {
+        let snap = try snapshot("""
+            {"limits":[
+              {"kind":"weekly_scoped","percent":12,"scope":{"model":{"display_name":"Opus"}}},
+              {"kind":"session","percent":1},
+              {"kind":"weekly_scoped","percent":71,"scope":{"model":{"display_name":"Fable"}}},
+              {"kind":"weekly_all","percent":2}
+            ]}
+            """)
+        XCTAssertEqual(snap.limits.count, 4)
+        XCTAssertEqual(Set(snap.limits.map(\.id)).count, 4, "no bucket overwrote another")
+        XCTAssertEqual(snap.limits.prefix(2).map(\.id), ["session", "weekly_all"],
+                       "the unscoped limits still sort first")
+        XCTAssertEqual(Set(snap.limits.filter(\.isScopedWeekly).map(\.id)),
+                       ["weekly_scoped:Opus", "weekly_scoped:Fable"])
+        XCTAssertEqual(snap.limits.map(\.label).filter { $0.hasPrefix("Weekly ") }.sorted(),
+                       ["Weekly (7 day)", "Weekly Fable", "Weekly Opus"])
+    }
+
     func testEntriesMissingPercentAreSkipped() throws {
         let snap = try snapshot(#"{"limits":[{"kind":"session"},{"kind":"weekly_all","percent":3}]}"#)
         XCTAssertEqual(snap.limits.map(\.id), ["weekly_all"])
