@@ -1,9 +1,11 @@
 ## Tokes - An AI Token Monitor for macOS
 
 A tiny menu bar app (in the spirit of [stats](https://github.com/exelban/stats)) that shows your
-Claude and GitHub Copilot plan usage at a glance: the three limits Claude Code reports — **Session (5 hr)**,
-**Weekly (7 day)**, and the **weekly model-scoped** limit (currently "Fable"). Optionally it
-also tracks **GitHub Copilot premium requests** (credits used of your monthly allowance).
+Claude and GitHub Copilot plan usage at a glance: the three limits your **Claude account plan**
+carries — **Session (5 hr)**, **Weekly (7 day)**, and the **weekly model-scoped** limit
+(currently "Fable"). These are plan-wide, not Claude Code's: claude.ai and the Claude apps
+draw down the same buckets. Optionally it also tracks **GitHub Copilot premium requests**
+(credits used of your monthly allowance).
 
 - **Menu bar icon**: three vertical bars (Session · Weekly · Model), filled bottom-up and
   colored by severity (green → orange ≥ 60% → red ≥ 85%). Optional text label showing one

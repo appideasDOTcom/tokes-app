@@ -40,17 +40,28 @@ usage,quota,limits,menubar,ai,llm,developer,tokens,monitor,rate,api,coding,assis
 
 ## Promotional text (170 max)
 
-Editable any time **without** a review cycle — the right place for temporary notes.
+Editable any time **without** a review cycle — the right place for temporary notes,
+and the cheapest field in the listing to retreat from if App Review ever objects.
+
+> **Two naming rules, both learned the expensive way — do not "tighten" past them.**
+> The limits are **Claude account plan** limits (session 5 hr, weekly 7 day,
+> model-scoped weekly), consumed by claude.ai and the Claude apps as much as by
+> Claude Code. Never call them *Claude Code* limits: in this product "Claude Code"
+> names a **credential source only**, and that path is compiled out of the App Store
+> build entirely. And it is always **GitHub Copilot**, never bare *Copilot* —
+> shortening it for character count undercuts the non-affiliation paragraph, which
+> quotes "GitHub Copilot" as the trademark it disclaims.
 
 ```
-Watch your Claude and GitHub Copilot usage limits from the menu bar, with local history charts. Free, open source, no account, no telemetry.
+Open source — you can read the code that reads your usage. Claude and GitHub Copilot limits in the menu bar, plus local history the API doesn't keep.
 ```
 
 ## Description (4000 max)
 
 ```
 Tokes is a tiny menu bar app that shows how much of your AI coding plan you have
-left — at a glance, without opening anything.
+left — at a glance, without opening anything. If you check your AI tokens incessantly
+like we do, Tokes will save you a few hundred clicks a day.
 
 WHAT IT SHOWS
 
@@ -117,11 +128,47 @@ their respective owners and are used here only to describe what Tokes monitors.
 
 ## Screenshots
 
-`scripts/screenshots.sh` → `build/appstore/screenshots/` at 2880×1800:
+**What actually ships are six frames authored by `appideas-designer`**, uploaded
+2026-08-20 and verified `COMPLETE`. Their path and the pull-don't-write rule are
+in `screenshots-source.txt`; upload with `scripts/appstore-screenshots.py`.
 
-1. `01-menu-bar-and-popover.png` — the icon in the menu bar with its popover open
-2. `02-usage-history.png` — the charts, larger
-3. `03-settings.png` — Settings as the **App Store build** presents it
+| | Caption |
+|---|---|
+| `01-menu-bar.png` | Know before you're cut off |
+| `02-panel.png` | Every limit, and when it resets |
+| `03-history.png` | History the endpoints don't keep |
+| `04-both-sources.png` | Claude and GitHub Copilot, in one place |
+| `05-connect.png` | Your credential stays yours |
+| `06-open-source.png` | Open source |
 
-Synthetic, deterministic data — no real account usage is published, and re-running
-reproduces the same images.
+All 2880×1800, **no alpha** (App Store Connect rejects a macOS screenshot that
+carries one, with an error that never says so), one locale, filename order =
+display order.
+
+**One fixture across all six** — session 88 resetting in 1h 12m, weekly 46,
+Weekly Fable 62, Copilot 57 — because figures that change between screenshots
+read as mocked up. Re-rendering any capture on different values means rebuilding
+the whole set, not one frame.
+
+The frames deliberately show a **configured** app, including a percentage beside
+the menu bar icon, which needs `Show in menu bar: Highest value` rather than the
+`.off` default. Review notes must therefore present the percentage as *optional*
+— not as something that appears by itself, and not as something that doesn't
+exist.
+
+### The two generators
+
+- `scripts/screenshots.sh --states` → `build/appstore/states/` — the raw
+  material the designer composites from: every app state, light and dark, no
+  canvas or copy. **Keeps its alpha channel deliberately**; flattening happens
+  in their composite, not here.
+- `scripts/screenshots.sh` → `build/appstore/screenshots/` — three
+  self-contained frames with headline copy, written before the design pass.
+  **Superseded, and not submittable as-is**: its output carries an alpha channel
+  and would be rejected. Kept as a fallback that would need flattening first.
+
+Both drive the real `StatusItemController`, `PopoverView` and `SettingsView`
+compiled with `-DTOKES_APP_STORE`, on synthetic data with no RNG, so no real
+account usage is published. `now` is captured once per run, so every frame in a
+run shares one clock; re-running on a different day shifts the chart's weekday
+axis labels, so capture a set in one run rather than mixing between runs.

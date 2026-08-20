@@ -13,6 +13,15 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   is dropped silently. The handlers use explicit `@objc(mouseEntered:)` names.
 - **Debug logging**: `defaults write com.appideas.tokes debugLogging -bool true` appends to
   `/tmp/tokes-debug.log` (unified log redacts dynamic NSLog content as `<private>`).
+  **There are two preference domains and `defaults` silently picks the wrong one.**
+  Because a sandbox container exists for this bundle id, `defaults … com.appideas.tokes`
+  operates on `~/Library/Containers/com.appideas.tokes/Data/…`, *not* on the direct
+  build's `~/Library/Preferences/com.appideas.tokes.plist`. Reaching the direct build
+  needs an explicit path — `defaults delete ~/Library/Preferences/com.appideas.tokes
+  debugLogging`. This silently defeated two cleanups: each deleted the key from the
+  container and each read-back confirmed it gone, both true of the wrong plist while the
+  direct build kept logging. The sandboxed build cannot write `/tmp`, so a growing
+  `/tmp/tokes-debug.log` is proof the *direct* build's flag is set.
 - If the usage endpoint returns **HTTP 429**, Tokes keeps the last snapshot, shows a banner,
   and skips Claude polls entirely until the backoff passes: `Retry-After` header when
   present, else 90 s doubling per consecutive 429 (cap 15 min). Copilot polling continues.
@@ -34,6 +43,17 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
     worked. Small sizes therefore cannot be hand-hinted; legibility lives in the geometry.
   - **The generated `.icns` topping out at 256px is correct**, not a missing-sizes bug —
     every Apple system app on macOS 26 ships exactly `ic04 ic11 ic07 ic13` plus `Assets.car`.
+    It is also what the **App Store listing icon is extracted from** — verified against the
+    live API: each uploaded build carries an `iconAssetToken` naming `Tokes.icns` at 256×256,
+    and the version record has no icon relationship at all. There is no separate store upload,
+    and 256px is therefore the ceiling on the mark anywhere in the store.
+  - **`Assets.car` is not byte-reproducible; `Tokes.icns` is.** Two `actool` runs over
+    identical inputs with identical arguments produce CARs differing in ~296 of 1,922,344
+    bytes — scattered metadata clusters (embedded per-asset identifiers), never image payload,
+    with the size invariant. So **never verify the icon pipeline by hashing or diffing
+    `Assets.car`**: it fails spuriously and reads as an icon regression when nothing changed.
+    Hash `Tokes.icns`, which is identical across both flavors and across runs, or assert
+    structure as `IconPipelineTests` does.
   - **The Dark rendition's ground is system-controlled and cannot be authored.** Changing the
     base `fill` alters Default but leaves Dark byte-identical; no `icon.json` key overrides it.
   Render any size or appearance headlessly with `ictool` (inside Icon Composer.app) rather
@@ -105,6 +125,26 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   works around (AXPress is a no-op on the item; a second running Tokes makes
   AX-reported item positions lie; the open popover is invisible to
   `windows of proc`). Needs Accessibility permission for the terminal.
+- **Rendering the UI above 1x is not a scale argument.** `scripts/screenshots.sh
+  --states` renders store-frame material, and three things there were each
+  measured the hard way:
+  - **`cacheDisplay` does not re-render at the destination resolution.** It
+    rasterises the hosting view's layer at that layer's backing scale — **1.0 for
+    a view that has never belonged to a window** — then scales the bitmap up. Ask
+    for 9x and you get 1x detail in a correctly-sized file: every dimension in the
+    manifest reads right, and only a 1:1 crop shows the doubled pixels.
+  - **Setting `contentsScale` / `rasterizationScale` across the layer tree does
+    nothing.** Tried and measured; don't spend an afternoon on it.
+  - **`ImageRenderer` is the fix, but only for plain SwiftUI.** It re-runs the
+    draw at the requested scale and `PopoverView` comes out genuinely crisp at
+    9x. It renders **`SettingsView` completely blank** — the grouped `Form`'s
+    AppKit-backed controls (`SecureField`, `Toggle`, `Picker`) draw nothing
+    through it — so Settings is stuck on `cacheDisplay` at 1x. Attaching to an
+    off-screen window would inherit a Retina scale, but all three displays on
+    this machine report `backingScaleFactor` 1.0, so there is no 2x to be had.
+  - Menu bar strips are exempt from all of this: `makeIcon` returns a dynamic
+    `NSImage` whose drawing handler re-executes at the destination resolution, so
+    those are vector-crisp at any factor.
 - **Seeing a UI change actually render** (status item or Settings, including while the usage
   API is 429ing and the real app has nothing to draw): use the `visual-verify` skill in
   `.claude/skills/`.
@@ -191,8 +231,10 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
 - **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App
-  Store work, and before assuming a contract is current. `build.app_icon` is
-  known stale there.
+  Store work, and before assuming a contract is current. Both channel contracts
+  are current as of 2026-08-20: `assets.app_icon` v2 (designer) and
+  `build.app_icon` v3 (ours). Call `get_contract` anyway rather than trusting
+  this line.
 - **Mac App Store releases take no arguments and no secrets.** API credentials
   live in `packaging/appstore/asc-credentials.env` (git-ignored; the `.example`
   documents it) and signing identities are discovered from the login keychain,

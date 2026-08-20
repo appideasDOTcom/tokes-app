@@ -104,6 +104,10 @@ def parse_listing():
         "name": name, "subtitle": subtitle, "keywords": keywords,
         "promotionalText": promo, "description": description,
         "supportUrl": url("Support"), "marketingUrl": url("Marketing"),
+        # Required to submit, and it lives on appInfoLocalizations rather than
+        # the version — which is why it was missing for so long: the version
+        # localization pushed cleanly and nothing reported the gap.
+        "privacyPolicyUrl": url("Privacy"),
     }
 
 
@@ -137,7 +141,7 @@ def main():
     targets = [
         ("appInfoLocalizations",
          api(token, "appInfos/%s/appInfoLocalizations" % info_id)["data"],
-         ["name", "subtitle"]),
+         ["name", "subtitle", "privacyPolicyUrl"]),
         ("appStoreVersionLocalizations",
          api(token, "appStoreVersions/%s/appStoreVersionLocalizations" % version["id"])["data"],
          ["description", "keywords", "promotionalText", "supportUrl", "marketingUrl"]),

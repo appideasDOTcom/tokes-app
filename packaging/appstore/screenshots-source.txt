@@ -1,0 +1,12 @@
+/Users/costmo/Documents/dev/appideas/appideas.com/appideas-designer/projects/tokes-store-assets/handoff
+
+# The App Store frames are authored by appideas-designer and live in THEIR repo.
+# Pull from the path above; never write into it — their build regenerates the
+# directory and anything we put there is lost on the next run.
+#
+# Rebuild on their side:  python3 projects/tokes-store-assets/frames.py
+# Our raw material:       scripts/screenshots.sh --states -> build/appstore/states/
+#
+# One fixture across all six frames: session 88 resetting in 1h 12m, weekly 46,
+# Weekly Fable 62, Copilot 57. If any capture is re-rendered on different values
+# the WHOLE set is rebuilt, not the one frame.

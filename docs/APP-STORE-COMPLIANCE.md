@@ -179,6 +179,11 @@ they were obtained is `retired/appstore-account-setup-2026-08-19.md`.
 - **App Privacy questionnaire, age rating, and at least one screenshot.** All
   three are web-UI answers and all three block submission. See
   `APP-STORE-SUBMISSION.md`.
+*Closed 2026-08-20:* the **privacy policy URL**, which also blocks submission
+but was never an operator answer — it had been specified in
+`packaging/appstore/listing.md` all along and simply never pushed, because it
+lives on `appInfoLocalizations` and `scripts/appstore-metadata.py` was sending
+only `name`/`subtitle` there. Script fixed and pushed.
 - **A Developer ID Application certificate**, for the *other* pipeline. It is
   separate from the two App Store certificates, `scripts/appstore-certs.py`
   does not create it, and the keychain does not hold one — so the notarized
