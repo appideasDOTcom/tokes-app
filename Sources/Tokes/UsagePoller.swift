@@ -52,6 +52,9 @@ final class UsagePoller {
     /// provider's stale limits forward can be stamped with the age of the
     /// oldest data it actually contains — see `tick()`.
     private var lastFetch: [UsageProvider: Date] = [:]
+    /// When `refreshIfStale` last let a poll through, which is not the same
+    /// question as how old the data is — see the rate floor there.
+    private var lastOpportunisticRefresh: Date?
 
     /// Test seam: the clock every deadline in this class is measured against.
     /// Replacing it is the only way to exercise a backoff window expiring
@@ -142,14 +145,28 @@ final class UsagePoller {
         if let until = claudeBackoffUntil, now() < until {
             return false
         }
-        // `fetchedAt` is the age of the *oldest* data in the snapshot, so while
-        // one provider is failing this stays stale and every popover opening
-        // retries it. That is the intent: the user looking is the best moment
-        // to try again, and the 429 window above still suppresses it.
+        // Data age answers "is this stale?"; it does not answer "should I ask
+        // again?". The two agree until a provider gets stuck failing, and then
+        // they diverge for good: `fetchedAt` is the age of the *oldest* data in
+        // the snapshot, so a Copilot token that expired an hour ago pins it
+        // there permanently and the staleness test below is true forever. The
+        // popover opens on *hover* (0.15 s dwell — StatusItemController), so
+        // without this floor every brush past the menu bar becomes a poll, with
+        // no limit, against the endpoint whose 429s `backoffDelay` exists to
+        // absorb. The floor is the same interval, measured from the last poll
+        // this function actually let through rather than from the data.
+        if let last = lastOpportunisticRefresh,
+           now().timeIntervalSince(last) < seconds {
+            return false
+        }
+        // Still stale-gated, so opening the popover on fresh data costs nothing.
+        // A provider outage means every *eligible* opening retries — the intent
+        // is unchanged, the rate is bounded.
         if let fetchedAt = state.snapshot?.fetchedAt,
            now().timeIntervalSince(fetchedAt) <= seconds {
             return false
         }
+        lastOpportunisticRefresh = now()
         refreshNow()
         return true
     }

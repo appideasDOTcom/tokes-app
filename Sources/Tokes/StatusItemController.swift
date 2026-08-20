@@ -157,16 +157,14 @@ final class StatusItemController: NSObject {
     static func makeTitle(limits: [UsageLimit], selection: MenuBarLabel,
                           hasError: Bool) -> NSAttributedString? {
         guard let shown = selection.limit(in: limits) else { return nil }
-        // Clamped the same way `makeIcon` clamps its bar heights. Two
-        // renderers reading one value used to disagree: a server answer of 420
-        // drew a full red bar next to the text " 420%", which reads as a Tokes
-        // bug rather than as a value at its limit.
-        let percent = max(0, min(100, shown.percent))
-        let labelColor: NSColor = percent >= 100 ? .systemRed
+        // No clamp here: `UsageLimit.init` guarantees 0…100. This used to clamp
+        // locally, which fixed the menu bar and left `PopoverView` printing the
+        // raw figure one click away.
+        let labelColor: NSColor = shown.percent >= 100 ? .systemRed
             : hasError ? .systemOrange
             : .labelColor
         return NSAttributedString(
-            string: " \(Int(percent.rounded()))%",
+            string: " \(Int(shown.percent.rounded()))%",
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
                 .foregroundColor: labelColor,

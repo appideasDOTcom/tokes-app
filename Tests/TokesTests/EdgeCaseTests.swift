@@ -64,8 +64,31 @@ final class EdgeCaseTests: XCTestCase {
             selection: .session, hasError: false)?.string
     }
 
-    /// `makeIcon` has always clamped its bar heights; `makeTitle` did not, so
-    /// one value drew a full red bar beside the text " 420%".
+    /// The invariant itself: no `UsageLimit` anywhere holds a percent outside
+    /// 0…100, whoever built it. Asserted on the type rather than on a renderer
+    /// because that is where the guarantee now lives — the clamp used to sit in
+    /// `makeTitle`, which fixed the menu bar and left `PopoverView` printing the
+    /// raw figure one click away.
+    func testALimitCannotHoldAPercentOutsideZeroToHundred() {
+        XCTAssertEqual(TestFixtures.limit(percent: 420).percent, 100)
+        XCTAssertEqual(TestFixtures.limit(percent: -5).percent, 0)
+        XCTAssertEqual(TestFixtures.limit(percent: 100).percent, 100)
+        XCTAssertEqual(TestFixtures.limit(percent: 0).percent, 0)
+        XCTAssertEqual(TestFixtures.limit(percent: 24.4).percent, 24.4)
+    }
+
+    /// ...and it holds through the parse path, so a server answer over 100 is
+    /// already clamped before any view sees it. `UsageClient` passes the API's
+    /// number through untouched; the type is what catches it.
+    func testTheParsePathClampsAnOutOfRangeServerAnswer() throws {
+        let snap = try UsageClient.snapshot(from: Data(#"""
+            {"limits":[{"kind":"session","percent":420},{"kind":"weekly_all","percent":-5}]}
+            """#.utf8))
+        XCTAssertEqual(snap.limits.map(\.percent), [100, 0])
+    }
+
+    /// `makeIcon` has always clamped its bar heights; the title and the popover
+    /// did not, so one value drew a full red bar beside the text " 420%".
     func testAnOverHundredPercentIsClampedTheWayTheBarsAre() {
         XCTAssertEqual(title(420), " 100%")
         XCTAssertEqual(title(100.4), " 100%")
@@ -82,9 +105,15 @@ final class EdgeCaseTests: XCTestCase {
         XCTAssertEqual(title(99.5), " 100%")
     }
 
-    /// A clamped-up value is still at its limit, so it still reads red; a
-    /// clamped-up-from-negative one is not.
-    func testTheClampKeepsTheAtLimitColor() {
+    /// The color rule at the clamp's boundaries: a clamped-up value is still at
+    /// its limit, so it still reads red; a clamped-up-from-negative one is not.
+    ///
+    /// Deliberately *not* named for the clamp — it cannot gate it. `>= 100` is
+    /// red whether the value arrives as 420 or as a clamped 100, so this test
+    /// passes with the clamp removed. Verified by running it that way; the four
+    /// tests above are what actually fail. Naming it for a guarantee it can't
+    /// check is how a check quietly becomes a pass.
+    func testTheAtLimitColorHoldsAtTheClampBoundaries() {
         let over = StatusItemController.makeTitle(
             limits: [TestFixtures.limit(id: "session", label: "s", percent: 420, isSession: true)],
             selection: .session, hasError: false)

@@ -259,8 +259,14 @@ final class UsagePollerTests: XCTestCase {
 
     // MARK: - refreshIfStale
 
+    /// The clock is driven here because two rules gate this call and they no
+    /// longer coincide in wall-clock time: staleness of the data, and the rate
+    /// floor on the calls themselves. Advancing past the floor isolates the
+    /// staleness rule this test is about.
     @MainActor
     func testRefreshIfStaleTriggersOnlyWhenStale() {
+        var clock = Date()
+        poller.now = { clock }
         client.results = [
             .success(TestFixtures.snapshot(percents: ["session": 1])),
             .success(TestFixtures.snapshot(percents: ["session": 2])),
@@ -268,12 +274,57 @@ final class UsagePollerTests: XCTestCase {
 
         XCTAssertTrue(poller.refreshIfStale())  // no snapshot yet
 
-        state.snapshot = TestFixtures.snapshot(percents: ["session": 1])
+        clock = clock.addingTimeInterval(31)
+        state.snapshot = TestFixtures.snapshot(percents: ["session": 1], fetchedAt: clock)
         XCTAssertFalse(poller.refreshIfStale(olderThan: 30))  // fresh
 
+        clock = clock.addingTimeInterval(31)
         state.snapshot = TestFixtures.snapshot(percents: ["session": 1],
-                                               fetchedAt: Date().addingTimeInterval(-120))
+                                               fetchedAt: clock.addingTimeInterval(-120))
         XCTAssertTrue(poller.refreshIfStale(olderThan: 30))  // stale
+    }
+
+    /// The regression this floor exists for. A provider stuck failing pins
+    /// `fetchedAt` to its last success, so the staleness test is true forever —
+    /// and the popover opens on hover, which made every brush past the menu bar
+    /// a poll against an endpoint that rate-limits.
+    @MainActor
+    func testStaleDataDoesNotLetHoverPollWithoutLimit() {
+        var clock = Date()
+        poller.now = { clock }
+        // An hour old, and nothing will refresh it: exactly the shape a snapshot
+        // takes while one provider's credentials have expired.
+        state.snapshot = TestFixtures.snapshot(percents: ["session": 1],
+                                               fetchedAt: clock.addingTimeInterval(-3600))
+
+        XCTAssertTrue(poller.refreshIfStale(olderThan: 30))
+
+        // Six more openings inside the window — the data is still an hour old
+        // every single time, and not one of them may reach the network.
+        for _ in 0..<6 {
+            clock = clock.addingTimeInterval(4)
+            XCTAssertFalse(poller.refreshIfStale(olderThan: 30))
+        }
+
+        // Past the floor, the retry the outage is supposed to get.
+        clock = clock.addingTimeInterval(7)
+        XCTAssertTrue(poller.refreshIfStale(olderThan: 30))
+    }
+
+    /// The floor is measured from the last poll let through, not from the last
+    /// call — a suppressed opening must not push the next retry further out.
+    @MainActor
+    func testSuppressedOpeningsDoNotPostponeTheNextRetry() {
+        var clock = Date()
+        poller.now = { clock }
+        state.snapshot = TestFixtures.snapshot(percents: ["session": 1],
+                                               fetchedAt: clock.addingTimeInterval(-3600))
+
+        XCTAssertTrue(poller.refreshIfStale(olderThan: 30))
+        clock = clock.addingTimeInterval(29)
+        XCTAssertFalse(poller.refreshIfStale(olderThan: 30))
+        clock = clock.addingTimeInterval(1)  // 30 s after the poll, not after the call
+        XCTAssertTrue(poller.refreshIfStale(olderThan: 30))
     }
 
     // MARK: - credentials & settings

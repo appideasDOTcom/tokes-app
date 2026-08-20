@@ -203,12 +203,23 @@ struct UsageLimit: Identifiable, Equatable {
     let detail: String?
 
     /// Creates a limit; provider defaults to Claude and detail to none.
+    ///
+    /// `percent` is clamped to 0…100 here, which is the only place it happens.
+    /// Every renderer used to decide for itself: `makeIcon` clamped its bar
+    /// heights, `makeTitle` did not, and `PopoverView` did not either — so one
+    /// server answer of 420 drew a full red bar beside the text " 420%" in the
+    /// menu bar and "420%" one click away in the popover. Clamping at the only
+    /// point a limit can be constructed makes "a percent is 0…100" an invariant
+    /// of the type rather than a rule each display has to remember, and it
+    /// covers producers that do not exist yet. The raw figure is not preserved
+    /// because nothing shows it: Copilot's exact counts reach the user through
+    /// `detail`, which carries credits, not a percentage.
     init(id: String, label: String, percent: Double, severity: String,
          resetsAt: Date?, isSession: Bool,
          provider: UsageProvider = .claude, detail: String? = nil) {
         self.id = id
         self.label = label
-        self.percent = percent
+        self.percent = max(0, min(100, percent))
         self.severity = severity
         self.resetsAt = resetsAt
         self.isSession = isSession

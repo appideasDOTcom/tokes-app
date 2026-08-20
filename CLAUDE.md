@@ -166,9 +166,20 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   seam that lets a test walk a window without sleeping.
 - **A snapshot's `fetchedAt` is the age of the *oldest* data it holds**, not the
   time of the tick — a Copilot-only success carrying hour-old Claude limits
-  forward must not read "Updated just now". `refreshIfStale` reads the same
-  field, so a provider outage means every popover opening retries; that is
-  intended.
+  forward must not read "Updated just now".
+- **`refreshIfStale` needs its own rate floor, not just that `fetchedAt`.** Data
+  age answers "is this stale?", never "should I ask again?", and the two diverge
+  permanently once a provider is stuck failing: `fetchedAt` pins to its last
+  success, so the staleness test is true forever. The popover opens on **hover**
+  (0.15 s dwell), so before the floor every brush past the menu bar was a poll
+  against the endpoint whose 429s `backoffDelay` exists to absorb. The floor is
+  measured from the last poll *let through*, so suppressed openings never push
+  the next retry out.
+- **A percent is clamped once, in `UsageLimit.init`** — never in a renderer.
+  Each display used to decide for itself, so `makeIcon` clamped its bar heights
+  while the title and `PopoverView` printed the raw figure: one server answer of
+  420 drew a full red bar beside " 420%", and "420%" one click away. Adding a
+  local clamp to a new view puts that back; the type already guarantees 0…100.
 - Never run git commit/push/tag — the user handles all of git.
 - **Coverage measurement is scripted**: run `swift test --enable-code-coverage`
   in both configurations, then `scripts/coverage-regions.py` (whole-binary
