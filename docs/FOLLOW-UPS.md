@@ -6,8 +6,9 @@ a later session.
 
 **Status, verified against App Store Connect 2026-08-20:** repo is now
 **1.4.2 / `CFBundleVersion` 3**, version record **1.4.2 / PREPARE_FOR_SUBMISSION**.
-The only uploaded builds are 1 (`1.2.0`) and 2 (`1.4.0`) — **no artifact exists
-at 1.4.2 yet**, so a build/upload/attach cycle is now a release blocker.
+**Build 3 (`1.4.2`, `CFBundleVersion` 3) was built and uploaded 2026-08-20**,
+audit 32/0 static. Attach build 3 — not build 2, which is a `1.4.0` artifact.
+Next upload needs `CFBundleVersion` 4.
 listing text pushed, **build 2 uploaded, `VALID`, and attached to the version
 record**. Build 1 (v1.2.0) is also `VALID` and permanently orphaned — leave it.
 Nothing submitted for review. The remaining blockers are all web-UI answers and
@@ -78,13 +79,54 @@ submission day — is tracked in `APP-STORE-SUBMISSION.md`, which also carries t
 state. What remains here is the one item that is neither a web form nor a code
 change:
 
-- [ ] **TestFlight end-to-end run.** The one claim not backed by the test
-      harness. A MAS-signed bundle cannot launch locally (`launchd` POSIX 163),
-      so everything verified so far is either the ad-hoc build or static analysis
-      of the signed one. Build 2 is uploaded and attached; install it via
-      TestFlight and confirm the sandboxed app polls, imports a credentials file
-      through the powerbox, and draws the menu bar item. Until then, do not
-      describe the submission build as verified end to end.
+- [ ] **TestFlight end-to-end run — unblocked; build 3 (`1.4.2`) is uploaded.**
+
+      This is the only claim in the whole compliance story with no evidence
+      behind it. A MAS-signed bundle **cannot launch on this Mac** (`launchd`
+      POSIX 163 — a Mac App Store profile authorises no devices), so everything
+      proven so far is either the ad-hoc build or static analysis of the signed
+      one. `verify-appstore.sh` says so itself: it skips its entire runtime
+      section for a submission-signed bundle. TestFlight is the first time the
+      **actual submitted artifact** ever runs.
+
+      What to check, in the order that makes a failure cheapest to diagnose.
+      Items 1–5 are the ones static analysis cannot reach:
+
+      1. **It launches and there is a menu bar item.** `LSUIElement` means no
+         Dock icon and no window — that is correct, not a failure. Three faint
+         grey bars, no number.
+      2. **`/tmp/tokes-debug.log` is NOT written.** Turn debug logging on
+         (`defaults write com.appideas.tokes debugLogging -bool true`, which for
+         a sandboxed app resolves to the container) and confirm the log lands
+         **inside** `~/Library/Containers/com.appideas.tokes/Data/`. A file in
+         `/tmp` means the sandbox is not doing what the audit claims.
+      3. **History goes into the container**, and
+         `~/Library/Application Support/Tokes` is **not** created or touched.
+      4. **Manual OAuth token works end to end** — the exact path a reviewer
+         takes: Settings → Claude Connection → select *Manual OAuth token* →
+         paste → Save Token → Test Connection → bars fill. The keychain item is
+         written inside the container.
+      5. **Powerbox import survives a relaunch and a rotation.** Pick a
+         credentials file in the open panel; quit and relaunch and confirm it
+         still reads (the security-scoped bookmark carries the grant, not the
+         panel); then replace the file atomically (new inode) and confirm the
+         new token is picked up. This was proven under a throwaway sandbox
+         bundle but never on a real install.
+      6. **Copilot manual token** — the frames and the review notes both depict
+         Copilot enabled, so the reviewer may well try it.
+      7. **Hover opens the popover** (0.15 s dwell), click pins it, and
+         right-click gives Refresh Now / Settings… / Quit Tokes.
+      8. **The percentage appears only after** setting Behavior → *Show in menu
+         bar*. If it shows by default, the review notes and the screenshots
+         disagree with the build.
+      9. **Settings footer reads `Tokes 1.4.2 (App Store)`** — confirms the
+         right artifact is installed, and that the flavor gate is live.
+     10. **The icon looks right** in the menu bar and in the Applications
+         folder — the `.icns` and `Assets.car` in a real install rather than
+         under `ictool`.
+
+      Until every one of these passes, do not describe the submission build as
+      verified end to end.
 
 *Done 2026-08-19:* build 2 uploaded at 1.4.0 and attached to the version record.
 

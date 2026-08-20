@@ -16,24 +16,27 @@ Verified against App Store Connect on 2026-08-20:
 |---|---|
 | App record | `Dev Tokes`, app id `6803324238`, bundle `com.appideas.tokes` |
 | Version record | **1.4.2**, `PREPARE_FOR_SUBMISSION` (operator bumped it 2026-08-20) |
-| Attached build | **build 2 — a `1.4.0` artifact**, `VALID`, still attached but **version-mismatched** |
+| Uploaded build | **build 3** (`1.4.2`), uploaded 2026-08-20 — attach it once Apple finishes processing |
 | Listing text | pushed — description, subtitle, keywords present in `en-US` |
 | Privacy policy URL | set — `https://appideas.com/privacy-policy/`, pushed 2026-08-20 |
 | Screenshots | **6 uploaded**, `APP_DESKTOP`, all `COMPLETE`, order pinned |
 | Age rating | **done** — `FOUR_PLUS` (Brazil `L`), verified via API 2026-08-20 |
-| App Privacy | reported answered 2026-08-20 — *not* API-verifiable, see below |
+| App Privacy | **done** — validated by the operator directly, more than once |
 | `whatsNew` | unset — not needed for a first release |
 | Submitted for review | **no** |
 
 Build 1 (v1.2.0) is also `VALID` and will never attach. Leave it.
 
-**Build 2 is now the wrong artifact.** The version record was bumped to `1.4.2`
-in place, so `build 2` — whose `CFBundleShortVersionString` is `1.4.0` — is
-attached to a record it does not match. App Store Connect did not detach it, but
-a build and its version record are expected to agree, and `--sync-version` exists
-precisely because a mismatch makes a build invisible to the picker with no error
-saying why. `scripts/Info.plist` is now **1.4.2 / CFBundleVersion 3**; a fresh
-build must be produced, uploaded and attached before submission.
+**Build 2 is the wrong artifact — do not submit with it.** The version record was
+bumped to `1.4.2` in place, so `build 2` (a `1.4.0` artifact) is attached to a
+record it does not match. App Store Connect did not detach it, but a build and
+its version record are expected to agree, and `--sync-version` exists precisely
+because a mismatch makes a build invisible to the picker with no error saying
+why. **Build 3 (`1.4.2`, `CFBundleVersion` 3) was built and uploaded 2026-08-20**
+— audit 32/0 static — and replaces it. Attach build 3, not build 2.
+
+Next upload needs `CFBundleVersion` **4**; it is monotonic across the whole app
+and never resets when the marketing version changes.
 
 ---
 
@@ -75,12 +78,11 @@ name.** Script fixed and both it and the new promotional text are now live.*
       off **`appInfos`**, not off `appStoreVersions` — querying the version
       relationship returns `PATH_ERROR` and reads like the API doesn't support
       it at all.
-- [~] **App Privacy questionnaire** — *Data Not Collected*, every category
-      answered. Reported complete 2026-08-20. **This one cannot be confirmed
-      from the API** — `appDataUsages` and `appDataUsagesPublishState` both
-      return `PATH_ERROR` against this app, so unlike the age rating there is no
-      independent check. Confirm it in the web UI before submitting rather than
-      trusting this line.
+- [x] **App Privacy questionnaire — done.** *Data Not Collected*, every category
+      answered; validated by the operator directly, more than once. Note for
+      anyone tempted to re-check it programmatically: **there is no API path** —
+      `appDataUsages` and `appDataUsagesPublishState` both return `PATH_ERROR`
+      against this app. Absence of an API check is not absence of the answer.
 - [ ] **Review notes** — text below. Needs a live OAuth token, valid on the day
       of submission.
 
