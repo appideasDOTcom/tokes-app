@@ -4,17 +4,28 @@ import Security
 /// Credential-resolution failures, with user-facing guidance.
 enum CredentialError: LocalizedError, Equatable {
     case notFound
-    case denied
+    #if !TOKES_APP_STORE
+        /// Only `loadClaudeCodeToken` raises this, and that reader is not in the
+        /// App Store build — so neither is the case, nor its message naming
+        /// Claude Code's keychain item.
+        case denied
+    #endif
     case manualMissing
+    case sourceUnavailable
 
     var errorDescription: String? {
         switch self {
         case .notFound:
             return "No Claude Code credentials found. Sign in with Claude Code, or set a token in Settings."
-        case .denied:
-            return "Keychain access denied. Allow access to \"Claude Code-credentials\", or set a token in Settings."
+        #if !TOKES_APP_STORE
+            case .denied:
+                return "Keychain access denied. Allow access to \"Claude Code-credentials\", or set a token in Settings."
+        #endif
         case .manualMissing:
             return "No token configured. Paste one in Settings."
+        case .sourceUnavailable:
+            return "That credential source isn't available in this build. "
+                + "Import a credentials file or paste a token in Settings."
         }
     }
 }
@@ -26,10 +37,21 @@ enum CredentialError: LocalizedError, Equatable {
 ///   2. The "Claude Code-credentials" keychain item via /usr/bin/security
 ///      (its keychain approval survives rebuilds of an ad-hoc-signed Tokes.app)
 ///   3. The same keychain item via the Security framework
+///
+/// All three read a store Claude Code owns, so all three are compiled out of the
+/// App Store build (`Capabilities.canReadForeignCredentialStores`). What remains
+/// there is the imported-file path and the manual token.
 final class CredentialsProvider {
     static let manualService = "com.appideas.tokes"
     static let manualAccount = "oauth-token"
-    private static let claudeCodeService = "Claude Code-credentials"
+    #if !TOKES_APP_STORE
+        private static let claudeCodeService = "Claude Code-credentials"
+    #endif
+
+    /// The credentials file the user imported, if any; injectable for tests.
+    var importedFile = ImportedCredentialFile(
+        defaultsKey: SettingsKeys.claudeCredentialFile,
+        describing: "Claude Code credentials")
 
     private var cachedToken: String?
     private var cachedExpiry: Date?
@@ -38,7 +60,7 @@ final class CredentialsProvider {
     var loadTokenOverride: (() throws -> (String, Date?))?
 
     private var source: CredentialSource {
-        CredentialSource(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.credentialSource) ?? "") ?? .claudeCode
+        CredentialSource.current()
     }
 
     /// Drops the cached token so the next poll re-reads credentials.
@@ -66,7 +88,7 @@ final class CredentialsProvider {
         return token
     }
 
-    /// Reads a token from the configured source (manual keychain item or Claude Code).
+    /// Reads a token from the configured source.
     private func loadToken() throws -> (String, Date?) {
         switch source {
         case .manual:
@@ -74,10 +96,30 @@ final class CredentialsProvider {
                 throw CredentialError.manualMissing
             }
             return (token, nil)
+        case .importedFile:
+            return try Self.loadImportedToken(from: importedFile)
         case .claudeCode:
-            return try Self.loadClaudeCodeToken()
+            #if TOKES_APP_STORE
+                // Unreachable: `CredentialSource.current()` normalizes this away
+                // in the App Store build, and the reader itself isn't compiled in.
+                throw CredentialError.sourceUnavailable
+            #else
+                return try Self.loadClaudeCodeToken()
+            #endif
         }
     }
+
+    /// Parses the credentials file the user picked in an open panel. Re-read on
+    /// every load, so a token the owning tool rotates is picked up.
+    static func loadImportedToken(from file: ImportedCredentialFile) throws -> (String, Date?) {
+        let data = try file.read()
+        guard let parsed = parseClaudeCredentials(data) else {
+            throw ImportedFileError.unparsable(file.displayPath ?? "imported file")
+        }
+        return parsed
+    }
+
+    #if !TOKES_APP_STORE
 
     /// Reads Claude Code's token: credentials file, then security CLI, then
     /// Security framework.
@@ -128,6 +170,8 @@ final class CredentialsProvider {
         guard process.terminationStatus == 0 else { return nil }
         return parseClaudeCredentials(data)
     }
+
+    #endif  // !TOKES_APP_STORE
 
     /// Extracts the access token and expiry from Claude Code's credentials JSON.
     static func parseClaudeCredentials(_ data: Data) -> (String, Date?)? {

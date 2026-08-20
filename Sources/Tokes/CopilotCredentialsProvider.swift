@@ -4,6 +4,7 @@ import Foundation
 enum CopilotCredentialError: LocalizedError, Equatable {
     case notFound
     case manualMissing
+    case sourceUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,9 @@ enum CopilotCredentialError: LocalizedError, Equatable {
             return "No Copilot credentials found. Sign in to GitHub Copilot in your editor (or `gh auth login`), or set a token in Settings."
         case .manualMissing:
             return "No GitHub token configured. Paste one in Settings."
+        case .sourceUnavailable:
+            return "That credential source isn't available in this build. "
+                + "Import a Copilot config file or paste a token in Settings."
         }
     }
 }
@@ -21,12 +25,23 @@ enum CopilotCredentialError: LocalizedError, Equatable {
 ///   1. ~/.config/github-copilot/apps.json (current plugin versions)
 ///   2. ~/.config/github-copilot/hosts.json (older plugin versions)
 ///   3. `gh auth token` from the GitHub CLI
+///
+/// All three read stores another tool owns, so all three are compiled out of the
+/// App Store build (`Capabilities.canReadForeignCredentialStores`). What remains
+/// there is the imported-file path and the manual token.
 final class CopilotCredentialsProvider: TokenProviding {
     static let manualAccount = "copilot-token"
 
-    /// Copilot's plugin config directory; injectable for tests.
-    var configDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/github-copilot")
+    #if !TOKES_APP_STORE
+        /// Copilot's plugin config directory; injectable for tests.
+        var configDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/github-copilot")
+    #endif
+
+    /// The Copilot config file the user imported, if any; injectable for tests.
+    var importedFile = ImportedCredentialFile(
+        defaultsKey: SettingsKeys.copilotCredentialFile,
+        describing: "Copilot config")
 
     private var cachedToken: String?
 
@@ -34,7 +49,7 @@ final class CopilotCredentialsProvider: TokenProviding {
     var loadTokenOverride: (() throws -> String)?
 
     private var source: CopilotCredentialSource {
-        CopilotCredentialSource(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.copilotCredentialSource) ?? "") ?? .editor
+        CopilotCredentialSource.current()
     }
 
     /// Drops the cached token so the next poll re-reads credentials.
@@ -56,7 +71,7 @@ final class CopilotCredentialsProvider: TokenProviding {
         return token
     }
 
-    /// Reads a token from the configured source (manual keychain item or editor sign-in).
+    /// Reads a token from the configured source.
     private func loadToken() throws -> String {
         switch source {
         case .manual:
@@ -65,10 +80,30 @@ final class CopilotCredentialsProvider: TokenProviding {
                 throw CopilotCredentialError.manualMissing
             }
             return token
+        case .importedFile:
+            return try Self.loadImportedToken(from: importedFile)
         case .editor:
-            return try loadEditorToken()
+            #if TOKES_APP_STORE
+                // Unreachable: `CopilotCredentialSource.current()` normalizes
+                // this away, and the reader itself isn't compiled in.
+                throw CopilotCredentialError.sourceUnavailable
+            #else
+                return try loadEditorToken()
+            #endif
         }
     }
+
+    /// Parses the Copilot config file the user picked in an open panel. Re-read
+    /// on every load, so a rotated token is picked up.
+    static func loadImportedToken(from file: ImportedCredentialFile) throws -> String {
+        let data = try file.read()
+        guard let token = token(fromConfig: data) else {
+            throw ImportedFileError.unparsable(file.displayPath ?? "imported file")
+        }
+        return token
+    }
+
+    #if !TOKES_APP_STORE
 
     /// Reads the plugin config files, then falls back to the gh CLI.
     func loadEditorToken() throws -> String {
@@ -84,6 +119,8 @@ final class CopilotCredentialsProvider: TokenProviding {
         throw CopilotCredentialError.notFound
     }
 
+    #endif  // !TOKES_APP_STORE
+
     /// Extracts the github.com oauth_token from an apps.json/hosts.json body.
     static func token(fromConfig data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
@@ -96,6 +133,8 @@ final class CopilotCredentialsProvider: TokenProviding {
         }
         return nil
     }
+
+    #if !TOKES_APP_STORE
 
     /// Asks the GitHub CLI for its stored token, trying common install paths.
     private static func ghCLIToken() -> String? {
@@ -122,4 +161,6 @@ final class CopilotCredentialsProvider: TokenProviding {
               !token.isEmpty else { return nil }
         return token
     }
+
+    #endif  // !TOKES_APP_STORE
 }

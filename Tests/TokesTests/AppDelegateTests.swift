@@ -22,11 +22,20 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertEqual(defaults.double(forKey: SettingsKeys.refreshInterval), 60)
         XCTAssertEqual(defaults.string(forKey: SettingsKeys.menuBarLabel), MenuBarLabel.off.rawValue)
+        // The most automatic source this build ships: Claude Code / editor for
+        // the direct build, the imported file for the App Store build.
         XCTAssertEqual(defaults.string(forKey: SettingsKeys.credentialSource),
-                       CredentialSource.claudeCode.rawValue)
+                       CredentialSource.defaultSource().rawValue)
         XCTAssertFalse(defaults.bool(forKey: SettingsKeys.copilotEnabled))
         XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource),
-                       CopilotCredentialSource.editor.rawValue)
+                       CopilotCredentialSource.defaultSource().rawValue)
+        #if TOKES_APP_STORE
+            XCTAssertEqual(defaults.string(forKey: SettingsKeys.credentialSource), "importedFile")
+            XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "importedFile")
+        #else
+            XCTAssertEqual(defaults.string(forKey: SettingsKeys.credentialSource), "claudeCode")
+            XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "editor")
+        #endif
         XCTAssertTrue(defaults.bool(forKey: SettingsKeys.showScopedWeekly))
     }
 

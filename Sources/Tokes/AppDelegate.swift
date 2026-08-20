@@ -10,9 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defaults.register(defaults: [
             SettingsKeys.refreshInterval: 60.0,
             SettingsKeys.menuBarLabel: MenuBarLabel.off.rawValue,
-            SettingsKeys.credentialSource: CredentialSource.claudeCode.rawValue,
+            SettingsKeys.credentialSource: CredentialSource.defaultSource().rawValue,
             SettingsKeys.copilotEnabled: false,
-            SettingsKeys.copilotCredentialSource: CopilotCredentialSource.editor.rawValue,
+            SettingsKeys.copilotCredentialSource: CopilotCredentialSource.defaultSource().rawValue,
             SettingsKeys.showScopedWeekly: true,
         ])
     }
@@ -38,6 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.migrateSettings()  // before registerDefaults — see its doc comment
         Self.registerDefaults()
+
+        DebugLog.log("Tokes launched — \(Distribution.current.displayName) build, "
+            + "sandboxed=\(SandboxAudit.isSandboxed)")
+        if let mismatch = SandboxAudit.mismatchDescription() {
+            // A mis-signed artifact: loud in the log rather than silently
+            // non-compliant (App Store) or silently broken (direct).
+            NSLog("Tokes: %@", mismatch)
+            DebugLog.log(mismatch)
+        }
 
         let state = AppState()
         let history = HistoryStore()

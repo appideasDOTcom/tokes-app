@@ -3,14 +3,19 @@ import SwiftUI
 
 /// Settings form: Claude and Copilot connections, refresh interval,
 /// menu bar label, and launch at login.
+///
+/// Which credential sources appear is decided by `CredentialSource.available()`,
+/// so the App Store build simply never offers the ones it doesn't ship — this
+/// view has no build conditionals of its own beyond the one connection test that
+/// calls a reader compiled out of that build.
 struct SettingsView: View {
     let onCredentialsChanged: () -> Void
 
     @AppStorage(SettingsKeys.refreshInterval) private var refreshInterval: Double = 60
     @AppStorage(SettingsKeys.menuBarLabel) private var menuBarLabel = MenuBarLabel.off.rawValue
-    @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.claudeCode.rawValue
+    @AppStorage(SettingsKeys.credentialSource) private var credentialSource = CredentialSource.defaultSource().rawValue
     @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
-    @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.editor.rawValue
+    @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.defaultSource().rawValue
     @AppStorage(SettingsKeys.showScopedWeekly) private var showScopedWeekly = true
 
     @State private var manualToken = ""
@@ -18,12 +23,21 @@ struct SettingsView: View {
     @State private var testing = false
     @State private var testResult: String?
     @State private var testPassed = false
+    @State private var claudeImportPath: String?
+    @State private var claudeImportError: String?
     @State private var copilotToken = ""
     @State private var copilotTokenSaved = false
     @State private var copilotTesting = false
     @State private var copilotTestResult: String?
     @State private var copilotTestPassed = false
+    @State private var copilotImportPath: String?
+    @State private var copilotImportError: String?
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    private let claudeFile = ImportedCredentialFile(
+        defaultsKey: SettingsKeys.claudeCredentialFile, describing: "Claude Code credentials")
+    private let copilotFile = ImportedCredentialFile(
+        defaultsKey: SettingsKeys.copilotCredentialFile, describing: "Copilot config")
 
     /// Menu bar options offered for the current Copilot / scoped-weekly toggles.
     private var availableLabels: [MenuBarLabel] {
@@ -34,30 +48,13 @@ struct SettingsView: View {
         Form {
             Section("Claude Connection") {
                 Picker("Credentials", selection: $credentialSource) {
-                    Text("Use Claude Code sign-in (automatic)").tag(CredentialSource.claudeCode.rawValue)
-                    Text("Manual OAuth token").tag(CredentialSource.manual.rawValue)
+                    ForEach(CredentialSource.available(), id: \.self) { source in
+                        Text(source.displayName).tag(source.rawValue)
+                    }
                 }
                 .pickerStyle(.radioGroup)
 
-                if credentialSource == CredentialSource.claudeCode.rawValue {
-                    Text("Reads the credentials Claude Code keeps in your keychain. macOS may ask you to allow access the first time.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    SecureField("OAuth access token", text: $manualToken)
-                    HStack(spacing: 8) {
-                        Button("Save Token") {
-                            tokenSaved = CredentialsProvider.saveManualToken(manualToken)
-                            onCredentialsChanged()
-                        }
-                        .disabled(manualToken.isEmpty)
-                        if tokenSaved {
-                            Label("Saved", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-                    }
-                }
+                claudeCredentialControls
 
                 HStack(spacing: 8) {
                     Button(testing ? "Testing…" : "Test Connection") { testConnection() }
@@ -76,31 +73,13 @@ struct SettingsView: View {
 
                 if copilotEnabled {
                     Picker("Credentials", selection: $copilotCredentialSource) {
-                        Text("Use editor sign-in / gh CLI (automatic)").tag(CopilotCredentialSource.editor.rawValue)
-                        Text("Manual GitHub token").tag(CopilotCredentialSource.manual.rawValue)
+                        ForEach(CopilotCredentialSource.available(), id: \.self) { source in
+                            Text(source.displayName).tag(source.rawValue)
+                        }
                     }
                     .pickerStyle(.radioGroup)
 
-                    if copilotCredentialSource == CopilotCredentialSource.editor.rawValue {
-                        Text("Reads the token your editor's Copilot plugin keeps in ~/.config/github-copilot, falling back to the GitHub CLI.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        SecureField("GitHub token", text: $copilotToken)
-                        HStack(spacing: 8) {
-                            Button("Save Token") {
-                                copilotTokenSaved = CredentialsProvider.saveManualToken(
-                                    copilotToken, account: CopilotCredentialsProvider.manualAccount)
-                                onCredentialsChanged()
-                            }
-                            .disabled(copilotToken.isEmpty)
-                            if copilotTokenSaved {
-                                Label("Saved", systemImage: "checkmark.circle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
-                            }
-                        }
-                    }
+                    copilotCredentialControls
 
                     HStack(spacing: 8) {
                         Button(copilotTesting ? "Testing…" : "Test Connection") { testCopilotConnection() }
@@ -144,17 +123,21 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+                Text("Tokes \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") "
+                    + "(\(Distribution.current.displayName))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 560)
+        .frame(width: 460, height: 620)
         .onAppear {
+            normalizeCredentialSources()
             manualToken = CredentialsProvider.readManualToken() ?? ""
             copilotToken = CredentialsProvider.readManualToken(
                 account: CopilotCredentialsProvider.manualAccount) ?? ""
+            claudeImportPath = claudeFile.displayPath
+            copilotImportPath = copilotFile.displayPath
             normalizeMenuBarLabel()
         }
         // Turning off Copilot or the scoped weekly limit removes its menu bar
@@ -173,6 +156,151 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Per-source controls
+
+    @ViewBuilder
+    private var claudeCredentialControls: some View {
+        switch CredentialSource(rawValue: credentialSource) ?? .manual {
+        case .claudeCode:
+            Text("Reads the credentials Claude Code keeps in your keychain. macOS may ask you to allow access the first time.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .importedFile:
+            importControls(
+                path: claudeImportPath,
+                error: claudeImportError,
+                help: "Pick the credentials file Claude Code writes, normally "
+                    + "~/.claude/.credentials.json. Tokes re-reads it on every refresh, so a "
+                    + "rotated token keeps working. If Claude Code stores your login only in "
+                    + "the keychain there is no such file — paste a token instead.",
+                importTitle: "Import Claude Code Credentials",
+                importMessage: "Choose ~/.claude/.credentials.json",
+                directory: RealHome.url.appendingPathComponent(".claude"),
+                file: claudeFile,
+                setPath: { claudeImportPath = $0 },
+                setError: { claudeImportError = $0 })
+        case .manual:
+            SecureField("OAuth access token", text: $manualToken)
+            HStack(spacing: 8) {
+                Button("Save Token") {
+                    tokenSaved = CredentialsProvider.saveManualToken(manualToken)
+                    onCredentialsChanged()
+                }
+                .disabled(manualToken.isEmpty)
+                if tokenSaved {
+                    Label("Saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var copilotCredentialControls: some View {
+        switch CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .manual {
+        case .editor:
+            Text("Reads the token your editor's Copilot plugin keeps in ~/.config/github-copilot, falling back to the GitHub CLI.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .importedFile:
+            importControls(
+                path: copilotImportPath,
+                error: copilotImportError,
+                help: "Pick your Copilot plugin's config file, normally "
+                    + "~/.config/github-copilot/apps.json (older plugins write hosts.json). "
+                    + "Tokes re-reads it on every refresh.",
+                importTitle: "Import Copilot Config",
+                importMessage: "Choose ~/.config/github-copilot/apps.json",
+                directory: RealHome.url.appendingPathComponent(".config/github-copilot"),
+                file: copilotFile,
+                setPath: { copilotImportPath = $0 },
+                setError: { copilotImportError = $0 })
+        case .manual:
+            SecureField("GitHub token", text: $copilotToken)
+            HStack(spacing: 8) {
+                Button("Save Token") {
+                    copilotTokenSaved = CredentialsProvider.saveManualToken(
+                        copilotToken, account: CopilotCredentialsProvider.manualAccount)
+                    onCredentialsChanged()
+                }
+                .disabled(copilotToken.isEmpty)
+                if copilotTokenSaved {
+                    Label("Saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+    }
+
+    /// Import / forget buttons plus the current selection, shared by both providers.
+    @ViewBuilder
+    private func importControls(path: String?,
+                                error: String?,
+                                help: String,
+                                importTitle: String,
+                                importMessage: String,
+                                directory: URL,
+                                file: ImportedCredentialFile,
+                                setPath: @escaping (String?) -> Void,
+                                setError: @escaping (String?) -> Void) -> some View {
+        Text(help)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        HStack(spacing: 8) {
+            Button(path == nil ? "Choose File…" : "Choose Another File…") {
+                setError(nil)
+                do {
+                    if let chosen = try file.runImportPanel(title: importTitle,
+                                                            message: importMessage,
+                                                            startingAt: directory) {
+                        setPath(chosen)
+                        onCredentialsChanged()
+                    }
+                } catch {
+                    setError(error.localizedDescription)
+                }
+            }
+            if path != nil {
+                Button("Forget") {
+                    file.clear()
+                    setPath(nil)
+                    setError(nil)
+                    onCredentialsChanged()
+                }
+            }
+        }
+
+        if let path {
+            Label(path, systemImage: "doc.badge.gearshape")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        if let error {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Normalization
+
+    /// Drops a stored credential source this build doesn't offer back to its
+    /// default — settings copied in from a direct build can name `claudeCode`
+    /// or `editor`, which the App Store build has no reader for.
+    private func normalizeCredentialSources() {
+        let claude = (CredentialSource(rawValue: credentialSource) ?? .manual).normalized()
+        if claude.rawValue != credentialSource { credentialSource = claude.rawValue }
+        let copilot = (CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .manual).normalized()
+        if copilot.rawValue != copilotCredentialSource { copilotCredentialSource = copilot.rawValue }
+    }
+
     /// Drops the menu bar selection back to "Highest value" when the measurement
     /// it names is no longer offered.
     private func normalizeMenuBarLabel() {
@@ -182,12 +310,15 @@ struct SettingsView: View {
         if valid.rawValue != menuBarLabel { menuBarLabel = valid.rawValue }
     }
 
+    // MARK: - Connection tests
+
     /// Fetches Copilot usage once with the selected credentials and reports the result inline.
     private func testCopilotConnection() {
         copilotTesting = true
         copilotTestResult = nil
-        let source = CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .editor
+        let source = CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .manual
         let pastedToken = copilotToken
+        let file = copilotFile
         Task {
             do {
                 let token: String
@@ -195,8 +326,14 @@ struct SettingsView: View {
                 case .manual:
                     guard !pastedToken.isEmpty else { throw CopilotCredentialError.manualMissing }
                     token = pastedToken
+                case .importedFile:
+                    token = try CopilotCredentialsProvider.loadImportedToken(from: file)
                 case .editor:
-                    token = try CopilotCredentialsProvider().loadEditorToken()
+                    #if TOKES_APP_STORE
+                        throw CopilotCredentialError.sourceUnavailable
+                    #else
+                        token = try CopilotCredentialsProvider().loadEditorToken()
+                    #endif
                 }
                 let limit = try await CopilotClient().fetch(token: token)
                 await MainActor.run {
@@ -218,8 +355,9 @@ struct SettingsView: View {
     private func testConnection() {
         testing = true
         testResult = nil
-        let source = CredentialSource(rawValue: credentialSource) ?? .claudeCode
+        let source = CredentialSource(rawValue: credentialSource) ?? .manual
         let pastedToken = manualToken
+        let file = claudeFile
         Task {
             do {
                 let token: String
@@ -227,8 +365,14 @@ struct SettingsView: View {
                 case .manual:
                     guard !pastedToken.isEmpty else { throw CredentialError.manualMissing }
                     token = pastedToken
+                case .importedFile:
+                    token = try CredentialsProvider.loadImportedToken(from: file).0
                 case .claudeCode:
-                    token = try CredentialsProvider.loadClaudeCodeToken().0
+                    #if TOKES_APP_STORE
+                        throw CredentialError.sourceUnavailable
+                    #else
+                        token = try CredentialsProvider.loadClaudeCodeToken().0
+                    #endif
                 }
                 let snapshot = try await UsageClient().fetch(token: token)
                 await MainActor.run {

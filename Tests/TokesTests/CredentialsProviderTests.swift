@@ -29,8 +29,11 @@ final class ClaudeCredentialParsingTests: XCTestCase {
 
     func testErrorDescriptionsAreUserFacing() {
         XCTAssertNotNil(CredentialError.notFound.errorDescription)
-        XCTAssertNotNil(CredentialError.denied.errorDescription)
         XCTAssertNotNil(CredentialError.manualMissing.errorDescription)
+        XCTAssertNotNil(CredentialError.sourceUnavailable.errorDescription)
+        #if !TOKES_APP_STORE
+            XCTAssertNotNil(CredentialError.denied.errorDescription)
+        #endif
     }
 }
 

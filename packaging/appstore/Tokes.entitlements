@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Review 2.4.5(i): Mac App Store apps must be sandboxed. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Outbound HTTPS to api.anthropic.com and api.github.com. No server. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Read-only access to files the user picks in an open panel, which is how
+	     the "import a credentials file" source works. Read-only because Tokes
+	     never writes to an imported file, and the bookmark it keeps is what lets
+	     it re-read a rotated token on later launches. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+</dict>
+</plist>

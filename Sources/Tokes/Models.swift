@@ -9,6 +9,9 @@ enum SettingsKeys {
     static let copilotEnabled = "copilotEnabled"
     static let copilotCredentialSource = "copilotCredentialSource"
     static let showScopedWeekly = "showScopedWeekly"
+    /// Security-scoped bookmarks for user-imported credentials files.
+    static let claudeCredentialFile = "claudeCredentialFileBookmark"
+    static let copilotCredentialFile = "copilotCredentialFileBookmark"
 
     /// Pre-picker on/off toggle for the menu bar text, migrated to `menuBarLabel`.
     static let legacyShowLabel = "showLabel"
@@ -70,16 +73,96 @@ enum MenuBarLabel: String, CaseIterable {
     }
 }
 
-/// Source of the OAuth token: Claude Code's stored credentials or a manually pasted token.
-enum CredentialSource: String {
+/// Where the Claude OAuth token comes from.
+///
+/// `.claudeCode` reads the credential store Claude Code owns, so it is compiled
+/// out of the App Store build entirely — see `Capabilities`. The other two are
+/// offered by every build: a file the user picks in an open panel is inside the
+/// sandbox by macOS' own definition, and the manual token lives in Tokes' own
+/// keychain item.
+enum CredentialSource: String, CaseIterable {
     case claudeCode
+    case importedFile
     case manual
+
+    /// Radio-button title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .claudeCode: return "Use Claude Code sign-in (automatic)"
+        case .importedFile: return "Import a Claude Code credentials file"
+        case .manual: return "Manual OAuth token"
+        }
+    }
+
+    /// The sources this build offers, most automatic first.
+    static func available(for distribution: Distribution = .current) -> [CredentialSource] {
+        switch distribution {
+        case .direct: return [.claudeCode, .importedFile, .manual]
+        case .appStore: return [.importedFile, .manual]
+        }
+    }
+
+    /// First-run selection for this build.
+    static func defaultSource(for distribution: Distribution = .current) -> CredentialSource {
+        available(for: distribution)[0]
+    }
+
+    /// Falls back to this build's default when the stored value names a source
+    /// this build doesn't offer.
+    func normalized(for distribution: Distribution = .current) -> CredentialSource {
+        Self.available(for: distribution).contains(self)
+            ? self : Self.defaultSource(for: distribution)
+    }
+
+    /// Reads the stored selection, normalized to something this build offers.
+    static func current(in defaults: UserDefaults = .standard) -> CredentialSource {
+        (CredentialSource(rawValue: defaults.string(forKey: SettingsKeys.credentialSource) ?? "")
+            ?? defaultSource()).normalized()
+    }
 }
 
-/// Source of the GitHub token: editor Copilot sign-in / gh CLI, or a manually pasted token.
-enum CopilotCredentialSource: String {
+/// Where the GitHub token comes from. `.editor` reads the Copilot plugin's own
+/// config and the `gh` CLI, so it is compiled out of the App Store build for the
+/// same reason `CredentialSource.claudeCode` is.
+enum CopilotCredentialSource: String, CaseIterable {
     case editor
+    case importedFile
     case manual
+
+    /// Radio-button title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .editor: return "Use editor sign-in / gh CLI (automatic)"
+        case .importedFile: return "Import a Copilot config file"
+        case .manual: return "Manual GitHub token"
+        }
+    }
+
+    /// The sources this build offers, most automatic first.
+    static func available(for distribution: Distribution = .current) -> [CopilotCredentialSource] {
+        switch distribution {
+        case .direct: return [.editor, .importedFile, .manual]
+        case .appStore: return [.importedFile, .manual]
+        }
+    }
+
+    /// First-run selection for this build.
+    static func defaultSource(for distribution: Distribution = .current) -> CopilotCredentialSource {
+        available(for: distribution)[0]
+    }
+
+    /// Falls back to this build's default when the stored value names a source
+    /// this build doesn't offer.
+    func normalized(for distribution: Distribution = .current) -> CopilotCredentialSource {
+        Self.available(for: distribution).contains(self)
+            ? self : Self.defaultSource(for: distribution)
+    }
+
+    /// Reads the stored selection, normalized to something this build offers.
+    static func current(in defaults: UserDefaults = .standard) -> CopilotCredentialSource {
+        (CopilotCredentialSource(rawValue: defaults.string(forKey: SettingsKeys.copilotCredentialSource) ?? "")
+            ?? defaultSource()).normalized()
+    }
 }
 
 /// The service a usage limit belongs to; drives grouping and visual separation.

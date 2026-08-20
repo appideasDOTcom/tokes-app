@@ -35,7 +35,11 @@ credentials Claude Code already maintains, tried in order:
    keychain approval survives rebuilds of an ad-hoc-signed app, then the Security framework)
 
 macOS will ask you to allow keychain access on first use — choose **Always Allow**.
-Alternatively, paste a token manually in Settings (stored in Tokes' own keychain item).
+
+Two other sources are available in Settings and work in every build: **import a
+credentials file** (pick `~/.claude/.credentials.json` in an open panel — Tokes
+re-reads it on each refresh, so a rotated token keeps working) or **paste a token
+manually** (stored in Tokes' own keychain item).
 
 With Copilot monitoring enabled, Tokes also polls
 `https://api.github.com/copilot_internal/user` — the endpoint editor Copilot plugins use for
@@ -47,11 +51,24 @@ tooling already maintains, tried in order:
 2. `~/.config/github-copilot/hosts.json` (older plugins)
 3. `gh auth token` from the GitHub CLI
 
-Or paste a GitHub token manually in Settings (stored in Tokes' own keychain item).
+Or import the config file yourself in an open panel, or paste a GitHub token
+manually in Settings (stored in Tokes' own keychain item).
 
 The APIs only report *current* utilization, so Tokes records a local sample on every poll
 (`~/Library/Application Support/Tokes/history.jsonl`, pruned to 8 days) to draw the charts.
 Charts fill in as the app runs.
+
+### Two builds
+
+Tokes ships as a Homebrew/direct build and a Mac App Store build, from one
+codebase. The App Store build is sandboxed, and App Review Guideline 2.5.2 does
+not allow a sandboxed app to read data outside its container — so the sources
+that read Claude Code's and Copilot's own credential stores are compiled out of
+it entirely, leaving the imported file and the manual token. Everything else is
+the same app. `docs/APP-STORE-COMPLIANCE.md` has the details, the measurements
+behind them, and how it is verified.
+
+Both are free, and the source is the same either way.
 
 ### Install via Homebrew
 
@@ -67,8 +84,14 @@ Until builds are notarized, right-click Tokes.app → Open on first launch (or a
 Requires Xcode (Swift 6 toolchain), targets macOS 14+.
 
 ```sh
-./scripts/build.sh --run    # builds build/Tokes.app and (re)launches it
+./scripts/build.sh --run          # builds build/Tokes.app and (re)launches it
+./scripts/build.sh --app-store    # sandboxed build -> build/appstore/Tokes.app
+./scripts/verify-appstore.sh      # audits that build against the App Store rules
 ```
+
+The App Store build needs no Apple certificates to build or audit locally — it
+is ad-hoc signed with the real sandbox entitlements, so the sandbox is genuinely
+on.
 
 The app icon is built from `packaging/icon/Tokes.icon` (an Icon Composer package)
 by `actool`, which derives both the macOS 26 layered rendition and the legacy
@@ -85,7 +108,8 @@ Then enable "Launch at login" in Settings.
 ### Tests
 
 ```sh
-swift test
+./scripts/test.sh    # both build configurations
+swift test           # the direct build only
 ```
 
 The suite lives in `Tests/TokesTests/`, fully separated from app code. It covers the API
@@ -99,5 +123,12 @@ menu bar icon (including rasterized pixel checks of severity colors and the prov
 divider), chart downsampling, settings defaults, hosting-controller smoke tests of
 the SwiftUI views, and the app icon build pipeline (the Icon Composer package
 compiles under `actool` into both shipping forms, with the plist keys the bundle
-needs — all failure modes there are silent ones). Tests touch no live credentials and make no network calls.
+needs — all failure modes there are silent ones), and the distribution/capability
+layer (which credential sources each build offers, the security-scoped bookmark
+round-trip including token rotation and atomic replacement, and the build-vs-runtime
+sandbox audit). Tests touch no live credentials and make no network calls.
+
+`scripts/test.sh` runs the suite twice, because the App Store configuration
+compiles with `-DTOKES_APP_STORE` and that removes whole functions — the default
+configuration alone would leave half the code unbuilt.
 

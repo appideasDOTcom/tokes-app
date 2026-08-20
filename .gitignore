@@ -1,5 +1,7 @@
-.build/
+.build*/
 build/
 .DS_Store
 *.xcodeproj
 .mcp.json
+packaging/appstore/embedded.provisionprofile
+packaging/appstore/asc-credentials.env

@@ -33,9 +33,19 @@ final class CopilotConfigParsingTests: XCTestCase {
     func testNonJSONReturnsNil() {
         XCTAssertNil(CopilotCredentialsProvider.token(fromConfig: Data("nope".utf8)))
     }
+
+    func testErrorDescriptions() {
+        XCTAssertTrue(CopilotCredentialError.notFound.errorDescription!.contains("No Copilot credentials"))
+        XCTAssertTrue(CopilotCredentialError.manualMissing.errorDescription!.contains("No GitHub token"))
+        XCTAssertNotNil(CopilotCredentialError.sourceUnavailable.errorDescription)
+    }
 }
 
-/// File-lookup order within a (temp) Copilot config directory.
+#if !TOKES_APP_STORE
+
+/// File-lookup order within a (temp) Copilot config directory. The editor reader
+/// is compiled out of the App Store build, so this suite is too — that this file
+/// stops compiling under `-DTOKES_APP_STORE` without the guard is the point.
 final class CopilotEditorTokenLookupTests: XCTestCase {
     private var configDir: URL!
     private var provider: CopilotCredentialsProvider!
@@ -73,12 +83,9 @@ final class CopilotEditorTokenLookupTests: XCTestCase {
         try write("hosts.json", token: "from-hosts")
         XCTAssertEqual(try provider.loadEditorToken(), "from-hosts")
     }
-
-    func testErrorDescriptions() {
-        XCTAssertTrue(CopilotCredentialError.notFound.errorDescription!.contains("No Copilot credentials"))
-        XCTAssertTrue(CopilotCredentialError.manualMissing.errorDescription!.contains("No GitHub token"))
-    }
 }
+
+#endif  // !TOKES_APP_STORE
 
 private final class Counter {
     var value = 0

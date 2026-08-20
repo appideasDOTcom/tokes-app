@@ -2,12 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Appends to /tmp/tokes-debug.log when `defaults write com.appideas.tokes
-/// debugLogging -bool true` is set. Unified log redacts our messages as
-/// <private>, so a plain file is the practical channel.
+/// Appends to a log file when `defaults write com.appideas.tokes debugLogging
+/// -bool true` is set. Unified log redacts our messages as <private>, so a plain
+/// file is the practical channel.
+///
+/// The destination is /tmp for the direct build; the sandbox denies writes there,
+/// so the App Store build logs inside its container — see `Capabilities`.
 enum DebugLog {
     /// Log destination; overridable in tests.
-    static var fileURL = URL(fileURLWithPath: "/tmp/tokes-debug.log")
+    static var fileURL = Capabilities.debugLogURL()
 
     /// Appends a timestamped line to the log file if debug logging is enabled.
     static func log(_ message: String) {

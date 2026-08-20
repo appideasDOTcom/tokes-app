@@ -126,4 +126,27 @@ final class ViewSmokeTests: XCTestCase {
             }
         }
     }
+
+    /// Every credential source renders its own controls — the import buttons and
+    /// the imported-path label included. `allCases`, not `available()`: a source
+    /// this build hides must still render if a stale setting names it.
+    @MainActor
+    func testSettingsViewLoadsForEveryCredentialSource() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.credentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
+        }
+        UserDefaults.standard.set(true, forKey: SettingsKeys.copilotEnabled)
+        for claude in CredentialSource.allCases {
+            for copilot in CopilotCredentialSource.allCases {
+                UserDefaults.standard.set(claude.rawValue, forKey: SettingsKeys.credentialSource)
+                UserDefaults.standard.set(copilot.rawValue, forKey: SettingsKeys.copilotCredentialSource)
+                let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+                hosting.view.layoutSubtreeIfNeeded()
+                XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
+                               "claude=\(claude) copilot=\(copilot)")
+            }
+        }
+    }
 }

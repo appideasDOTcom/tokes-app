@@ -35,46 +35,50 @@ scripts/release.sh --sign "Developer ID Application: ..." --notarize <profile>
 Prints the zip path and sha256. Once builds are signed + notarized, remove the
 `caveats` block from the cask.
 
-## Temporary (until resolved)
+## Architecture
 
-The Apple App Store release cannot include the current authentication mechanism.
-An App Store build must be sandboxed, and every credential path Tokes uses today
-depends on something the sandbox denies. **Both providers are affected**, not
-just Claude.
+Both flavors build universal (`arm64` + `x86_64`). Apple is retiring Intel *app*
+support, not universal binaries — Rosetta never touches a universal build. macOS
+27 drops Intel Macs, but `LSMinimumSystemVersion` is 14.0 and Sonoma/Sequoia run
+on plenty of 2017-2020 Intel hardware whose owners can never move past macOS 26.
+Revisit when the deployment target passes 26. `--universal` is the default;
+nothing disables it short of editing `build.sh`.
 
-Blocked under the sandbox:
+## Mac App Store
 
-| Path | Where | Why it fails sandboxed |
-|---|---|---|
-| `~/.claude/.credentials.json` | `CredentialsProvider` | File outside the app container |
-| `"Claude Code-credentials"` keychain item | `CredentialsProvider` | Another app's keychain item, not in Tokes' access group |
-| `/usr/bin/security` shell-out | `CredentialsProvider` | Subprocess execution |
-| `~/.config/github-copilot/apps.json`, `hosts.json` | `CopilotCredentialsProvider` | Files outside the app container |
-| `gh auth token` shell-out | `CopilotCredentialsProvider` | Subprocess execution |
+A separate artifact from the notarized zip above, built from the same source
+with `-DTOKES_APP_STORE`. Read `APP-STORE-COMPLIANCE.md` for the design and `APP-STORE-SUBMISSION.md` for the account-side runbook first — it explains
+what that flag removes and why, and lists the account-level prerequisites
+(certificates, provisioning profile, review notes) that no script can supply.
 
-Not blocked: the manual-token path for either provider (Tokes' own keychain item,
-service `com.appideas.tokes`), since a sandboxed app may use its own keychain —
-though this still needs verifying against a real sandboxed build. That is the only
-credential mechanism that survives as-is, so the App Store build is some form of
-"paste your own key" for both services.
+Build and audit locally, no Apple certificates required:
 
-Open question for when we take this up: the Claude usage endpoint is
-`api/oauth/usage` and is OAuth-scoped — whether a standard Anthropic API key
-authenticates against it at all is unverified. Check that before committing to an
-API-key design.
+```sh
+scripts/build.sh --app-store      # sandboxed, ad-hoc signed -> build/appstore/Tokes.app
+scripts/verify-appstore.sh        # static + runtime compliance audit
+```
 
-## Not yet provisioned (blocks App Store submission regardless of code)
+Certificates and the provisioning profile, once per team:
 
-None of these is a code problem, and no agent can obtain them — they are
-account-level and need Costmo:
+```sh
+scripts/appstore-certs.py           # reads packaging/appstore/asc-credentials.env
+```
 
-- Apple Developer Program membership for the App Store (separate from the
-  Developer ID signing used by the Homebrew/notarized path above).
-- A **Mac App Store distribution certificate** and a matching provisioning
-  profile. `release.sh` currently signs ad-hoc or with Developer ID; neither is
-  accepted for App Store submission.
-- An App Store Connect app record, needed before anything can be uploaded.
+Package and ship a submission — no arguments, no secrets:
 
-The App Store build is also a different artifact from the one above: a signed
-`.pkg` via `productbuild`/`productsign` uploaded with Transporter, not the
-notarized `.zip` the cask consumes. Both pipelines have to keep working.
+```sh
+scripts/appstore.sh                 # build, sign, audit, .pkg
+scripts/appstore.sh --validate
+scripts/appstore.sh --upload
+scripts/appstore.sh --build-status
+```
+
+`appstore.sh` runs `verify-appstore.sh` and refuses to package if it fails, and
+`--upload` refuses a `CFBundleVersion` already uploaded before it builds
+anything. Bump it in `scripts/Info.plist` for every upload — App Store Connect
+rejects a duplicate even when the marketing version is unchanged. Uploading does
+not submit for review; the build waits in App Store Connect until a human
+submits it.
+
+Both pipelines have to keep working; `scripts/test.sh` runs the suite in both
+configurations and CI audits the App Store build on every tagged release.

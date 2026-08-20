@@ -39,6 +39,59 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   Render any size or appearance headlessly with `ictool` (inside Icon Composer.app) rather
   than opening the GUI — renditions are `Default`, `Dark`, `TintedLight`, `TintedDark`,
   `ClearLight`, `ClearDark`.
+- **Two distribution flavors.** `scripts/build.sh --app-store` compiles with
+  `-DTOKES_APP_STORE`, which `#if`-excludes every credential reader that touches
+  another app's store. Read `docs/APP-STORE-COMPLIANCE.md` before touching
+  `CredentialsProvider`, `CopilotCredentialsProvider`, `Distribution.swift`, or
+  the entitlements. Three things there are counter-intuitive:
+  - **Run `scripts/test.sh`, not `swift test`.** The flag removes whole
+    functions; the default configuration leaves that half unbuilt. A guard that
+    stops compiling under the flag *is* the mechanism working — fix the test,
+    don't widen the guard.
+  - **The sandbox kernel is not the compliance boundary.** Measured on a real
+    sandboxed bundle: it denies reads of `~/.claude/.credentials.json` and
+    `~/.config/github-copilot/apps.json`, but *allows* spawning
+    `/usr/bin/security` and `SecItemCopyMatching` against Claude Code's keychain
+    item. Guideline 2.5.2 forbids all four. Only `scripts/verify-appstore.sh`
+    enforces the difference.
+  - **The forbidden-string list covers behavior, not copy.** The App Store build
+    still contains `~/.claude/.credentials.json` as import help text and as the
+    open panel's starting directory. That's the feature, not a leak.
+- **`scripts/verify-appstore.sh` has two shell traps baked into its comments,**
+  both of which silently turned checks into passes before they were found:
+  `grep -q` under `set -o pipefail` (the producer takes SIGPIPE, so the pipeline
+  reports failure *on a match*), and a multi-byte character next to `$var` in a
+  string (bash 3.2 reads it as part of the name, and `set -u` aborts). Use
+  `grep -c` and stay ASCII. `plutil -extract` also reads dots as keypath
+  separators, so it can never find a `com.apple.security.*` key — use PlistBuddy.
+- **App Store Connect API** (`scripts/appstore-certs.py`), four things that each
+  cost a wrong turn:
+  - **`csrContent` is the raw PEM, not base64 of it.** Base64-wrapping returns
+    HTTP 409 *"Invalid Certificate"*, which reads like the key is bad rather than
+    the encoding.
+  - **`xcrun altool --generate-jwt` writes the token to stderr**, after a banner
+    line. `2>/dev/null | tail -1` yields an empty string and a confusing 401.
+  - **`curl` globs `[` and `]`** — `filter[identifier]=...` silently produces a
+    malformed request unless you pass `-g`.
+  - **A POST probe against this API creates real, billable-slot resources.**
+    Apple caps Apple Distribution certificates at 2 per team; two throwaway
+    certs from an encoding experiment fill it. Probe encodings on something
+    disposable, and stop at the first success.
+- **Ad-hoc and submission builds are deliberately different artifacts.**
+  `build.sh --app-store` with no `--sign` stays account-free: three sandbox
+  entitlements, no provisioning profile, and it *launches*, which is what lets
+  `verify-appstore.sh` exercise the sandbox with no Apple certificates. Signing
+  with a real identity embeds the profile and adds the two team-scoped
+  entitlements — and that bundle **cannot launch on this Mac at all**
+  (`launchd` POSIX 163: a Mac App Store profile authorises no devices). That is
+  correct Apple behaviour, so the auditor detects the signature type and skips
+  the runtime section rather than reporting three failures.
+- **Certificate private keys exist only where they were generated.** The script
+  writes `.p12` backups beside the API key. Losing the keychain without them
+  means revoke-and-reissue, which invalidates every build already signed.
+- **Sandbox containers can't be deleted from the shell.** Test bundles leave
+  `~/Library/Containers/<id>` behind; `containermanagerd` protects the metadata
+  plist even from `rm -rf` as the owner. Delete from Finder, or leave it.
 - **Seeing a UI change actually render** (status item or Settings, including while the usage
   API is 429ing and the real app has nothing to draw): use the `visual-verify` skill in
   `.claude/skills/`.
@@ -72,3 +125,20 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
 - Never run git commit/push/tag — the user handles all of git.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
+- **Mac App Store releases take no arguments and no secrets.** API credentials
+  live in `packaging/appstore/asc-credentials.env` (git-ignored; the `.example`
+  documents it) and signing identities are discovered from the login keychain,
+  so never ask the operator to paste a key or an identity string:
+
+  ```sh
+  scripts/appstore-certs.py       # certificates + provisioning profile (once)
+  scripts/appstore.sh             # build, sign, audit, package
+  scripts/appstore.sh --validate  # ...and check it against App Store Connect
+  scripts/appstore.sh --upload    # ...and send it
+  scripts/appstore.sh --build-status
+  ```
+
+  `--upload` refuses a `CFBundleVersion` already uploaded, *before* building —
+  bump it in `scripts/Info.plist` for every upload, even when the marketing
+  version is unchanged. Uploading is **not** submitting: the build waits under
+  the app's Builds section until a human submits it for review.
