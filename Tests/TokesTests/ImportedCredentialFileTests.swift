@@ -9,7 +9,10 @@ import XCTest
 final class ImportedCredentialFileTests: XCTestCase {
     private var directory: URL!
     private var defaults: UserDefaults!
-    private let suite = "com.appideas.tokes.tests.importedfile"
+    // UUID rather than a fixed name: classes run in separate processes under
+    // `swift test --parallel` but share suite files on disk, so a fixed name
+    // has two workers writing the same bookmark key.
+    private let suite = "com.appideas.tokes.tests.importedfile.\(UUID().uuidString)"
     private var file: ImportedCredentialFile!
 
     override func setUp() {
@@ -162,5 +165,180 @@ final class ImportedCredentialFileTests: XCTestCase {
     func testRealHomeIsAnAbsoluteUsersPath() {
         XCTAssertTrue(RealHome.url.path.hasPrefix("/"))
         XCTAssertFalse(RealHome.url.path.isEmpty)
+    }
+}
+
+/// The security-scoped half of the bookmark, which is the part the App Store
+/// build depends on and the part no test could reach before `makeBookmark` and
+/// `beginAccess` existed. An unsandboxed test process is granted a
+/// security-scoped bookmark for any file it can read, so the fallback and the
+/// revoked-grant arms are unreachable without forcing them.
+final class ImportedFileBookmarkScopeTests: XCTestCase {
+    private var directory: URL!
+    private var defaults: UserDefaults!
+    private var suite: String!
+    private var file: ImportedCredentialFile!
+    private let key = "scopeBookmark"
+
+    override func setUp() {
+        super.setUp()
+        directory = TestFixtures.tempDirectory()
+        suite = "com.appideas.tokes.tests.bookmarkscope.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)
+        file = ImportedCredentialFile(defaultsKey: key, describing: "test credentials",
+                                      defaults: defaults)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: directory)
+        UserDefaults.standard.removeSuite(named: suite)
+        super.tearDown()
+    }
+
+    @discardableResult
+    private func write(_ body: String, to name: String = "creds.json") throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try Data(body.utf8).write(to: url)
+        return url
+    }
+
+    /// Rejects security-scoped bookmark creation, the way a volume that does
+    /// not support them does, and records every option set it was asked for.
+    private func refuseSecurityScope() -> () -> [URL.BookmarkCreationOptions] {
+        let box = OptionsBox()
+        file.makeBookmark = { url, options in
+            box.append(options)
+            if options.contains(.withSecurityScope) {
+                throw CocoaError(.fileWriteUnsupportedScheme)
+            }
+            return try url.bookmarkData(options: options,
+                                        includingResourceValuesForKeys: nil, relativeTo: nil)
+        }
+        return { box.all }
+    }
+
+    private final class OptionsBox {
+        private let lock = NSLock()
+        private var seen: [URL.BookmarkCreationOptions] = []
+        func append(_ o: URL.BookmarkCreationOptions) { lock.lock(); seen.append(o); lock.unlock() }
+        var all: [URL.BookmarkCreationOptions] { lock.lock(); defer { lock.unlock() }; return seen }
+    }
+
+    // MARK: - first import
+
+    /// A first import may legitimately fall back to a plain bookmark, and the
+    /// file must stay readable through it — resolution then passes no options
+    /// and opens no scope.
+    func testAFirstImportFallsBackToAPlainBookmarkAndStillReads() throws {
+        let options = refuseSecurityScope()
+        let url = try write("{}")
+
+        try file.store(url)
+
+        XCTAssertEqual(options().count, 2, "scoped attempted first, then plain")
+        XCTAssertTrue(options()[0].contains(.withSecurityScope))
+        XCTAssertFalse(options()[1].contains(.withSecurityScope))
+        XCTAssertTrue(file.hasImport)
+        XCTAssertEqual(String(data: try file.read(), encoding: .utf8), "{}")
+    }
+
+    /// A plain bookmark must not try to open a scope it never obtained —
+    /// `startAccessingSecurityScopedResource` on one returns false, which would
+    /// read as a revoked grant.
+    func testAPlainBookmarkNeverOpensASecurityScope() throws {
+        _ = refuseSecurityScope()
+        try file.store(try write("{}"))
+        var beginAccessCalls = 0
+        file.beginAccess = { _ in beginAccessCalls += 1; return false }
+
+        XCTAssertEqual(String(data: try file.read(), encoding: .utf8), "{}")
+        XCTAssertEqual(beginAccessCalls, 0, "a plain bookmark has no scope to open")
+    }
+
+    // MARK: - the refresh rule
+
+    /// The §4.8 downgrade. An atomic replacement makes the bookmark stale, and
+    /// the refresh that follows must not turn a security-scoped grant into a
+    /// plain bookmark — that trades access surviving relaunch for access that
+    /// does not, and the failure shows up much later with nothing to connect it
+    /// to. Failing the re-save leaves the old scoped bookmark in place instead.
+    func testAStaleRefreshWillNotDowngradeAScopedGrant() throws {
+        let url = try write("v1")
+        try file.store(url)
+        let scopedBookmark = defaults.data(forKey: key)
+        XCTAssertNotNil(scopedBookmark)
+
+        // Replace the file the way a credential writer does, so the bookmark
+        // resolves stale on the next read.
+        let options = refuseSecurityScope()
+        try Data("v2".utf8).write(to: url, options: .atomic)
+
+        XCTAssertEqual(String(data: try file.read(), encoding: .utf8), "v2",
+                       "the file must still be readable through the stale bookmark")
+        XCTAssertEqual(defaults.data(forKey: key), scopedBookmark,
+                       "a failed scoped re-save must leave the scoped bookmark alone")
+        XCTAssertFalse(options().contains { !$0.contains(.withSecurityScope) },
+                       "the refresh must never fall back to a plain bookmark")
+    }
+
+    /// The same path when the re-save succeeds: the bookmark is replaced, and
+    /// it is replaced with another scoped one.
+    func testAStaleRefreshRewritesTheBookmarkWhenItCan() throws {
+        let url = try write("v1")
+        try file.store(url)
+        let first = defaults.data(forKey: key)
+
+        let box = OptionsBox()
+        file.makeBookmark = { url, options in
+            box.append(options)
+            return try url.bookmarkData(options: options,
+                                        includingResourceValuesForKeys: nil, relativeTo: nil)
+        }
+        try Data("v2".utf8).write(to: url, options: .atomic)
+        XCTAssertEqual(String(data: try file.read(), encoding: .utf8), "v2")
+
+        XCTAssertEqual(box.all.count, 1, "one re-save on the stale read")
+        XCTAssertTrue(box.all[0].contains(.withSecurityScope))
+        XCTAssertNotEqual(defaults.data(forKey: key), first, "the stale bookmark was replaced")
+        // And the replacement is usable on a fresh instance, i.e. across launches.
+        let reopened = ImportedCredentialFile(defaultsKey: key, describing: "test credentials",
+                                              defaults: defaults)
+        XCTAssertEqual(String(data: try reopened.read(), encoding: .utf8), "v2")
+    }
+
+    // MARK: - a revoked grant
+
+    /// The grant is gone — the extension no longer covers the file. This is the
+    /// arm that tells the user to import again rather than failing silently.
+    func testARevokedGrantSurfacesAsUnreadable() throws {
+        let url = try write("{}")
+        try file.store(url)
+        file.beginAccess = { _ in false }
+
+        XCTAssertThrowsError(try file.read()) { error in
+            guard case .unreadable(let path) = error as? ImportedFileError else {
+                return XCTFail("expected .unreadable, got \(error)")
+            }
+            // The message names the file, not the generic description — the
+            // user needs to know *which* import stopped working.
+            XCTAssertEqual(URL(fileURLWithPath: path).resolvingSymlinksInPath().path,
+                           url.resolvingSymlinksInPath().path)
+        }
+    }
+
+    /// Resolution succeeds and the scope opens, but the bytes cannot be read —
+    /// the file is there and the process is not allowed to have it.
+    func testAnUnreadableFileSurfacesAsUnreadableRatherThanEmpty() throws {
+        let url = try write("{}")
+        try file.store(url)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                                       ofItemAtPath: url.path) }
+
+        XCTAssertThrowsError(try file.read()) { error in
+            guard case .unreadable = error as? ImportedFileError else {
+                return XCTFail("expected .unreadable, got \(error)")
+            }
+        }
     }
 }

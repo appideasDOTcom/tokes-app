@@ -89,11 +89,57 @@ final class ViewSmokeTests: XCTestCase {
         XCTAssertGreaterThan(view.fittingSize.height, 40)
     }
 
+    /// The banner has to add height, and the old assertion could not see that.
+    ///
+    /// It compared the two *snapshotless* states with a `- 60` tolerance, and
+    /// those two are not comparable: with no snapshot the banner *replaces* the
+    /// "Connecting…" block, so the error state is legitimately 35pt shorter and
+    /// the assertion passed on a number pointing the wrong way. A zero-height
+    /// banner would have passed it too. Compared against a state that keeps its
+    /// limits, the banner is purely additive and a strict inequality holds.
     @MainActor
     func testPopoverViewRendersErrorBanner() {
-        let plain = popover(state: makeState(withSnapshot: false))
-        let withError = popover(state: makeState(withSnapshot: false, error: "Something went wrong"))
-        XCTAssertGreaterThan(withError.fittingSize.height, plain.fittingSize.height - 60)
+        let plain = popover(state: makeState())
+        let withError = popover(state: makeState(error: "Something went wrong"))
+
+        XCTAssertGreaterThan(withError.fittingSize.height, plain.fittingSize.height)
+        // And the text itself is laid out, not clipped to one line.
+        let wrapped = popover(state: makeState(
+            error: String(repeating: "Usage API rate-limited — retrying automatically. ", count: 4)))
+        XCTAssertGreaterThan(wrapped.fittingSize.height, withError.fittingSize.height)
+    }
+
+    /// The other half of that: with nothing to show, the banner stands in for
+    /// the "Connecting…" block rather than sitting above it.
+    @MainActor
+    func testAnErrorReplacesTheConnectingBlockRatherThanStackingOnIt() {
+        let connecting = popover(state: makeState(withSnapshot: false))
+        let failed = popover(state: makeState(withSnapshot: false, error: "Something went wrong"))
+
+        // Pinned because it is the fact that made the old assertion misleading:
+        // these two states differ by a *swap*, so no tolerance-based comparison
+        // between them says anything about whether the banner rendered. That
+        // question is settled in the test above, against a state that keeps its
+        // limits and where the banner is purely additive.
+        XCTAssertLessThan(failed.fittingSize.height, connecting.fittingSize.height)
+    }
+
+    /// First launch: fewer than three samples draws the "Collecting history…"
+    /// overlay instead of a line. Every other test here seeds 10–20 samples, so
+    /// the state a new user actually sees was never rendered.
+    @MainActor
+    func testTheChartRendersBeforeThereIsHistoryToDraw() {
+        let limit = TestFixtures.limit(id: "session", label: "Session (5 hr)", percent: 24,
+                                       resetsAt: Date().addingTimeInterval(3600), isSession: true)
+        for count in 0...3 {
+            let samples = (0..<count).map {
+                UsageSample(t: Date().addingTimeInterval(Double(-$0) * 60), v: ["session": 12])
+            }
+            let hosting = NSHostingController(rootView: LimitSection(limit: limit, samples: samples)
+                .frame(width: 320))
+            hosting.view.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(hosting.view.fittingSize.height, 60, "\(count) samples")
+        }
     }
 
     @MainActor

@@ -23,13 +23,26 @@ struct UsageChart: View {
     /// This limit's samples within the window, downsampled, plus a "now" point
     /// so the chart is alive from the first poll.
     private var points: [ChartPoint] {
-        let cutoff = Date().addingTimeInterval(-window)
+        Self.points(samples: samples, limitID: limitID, window: window,
+                    currentPercent: currentPercent)
+    }
+
+    /// This limit's samples within the window, downsampled, plus a "now" point.
+    ///
+    /// Static and taking its clock so the two things the filter is for can be
+    /// asserted: dropping samples older than the window, and dropping other
+    /// limits' series out of this chart. Every seeded sample in the view smoke
+    /// tests is inside the window and carries every limit id, so before this
+    /// the `guard` had only ever taken its accept arm.
+    static func points(samples: [UsageSample], limitID: String, window: TimeInterval,
+                       currentPercent: Double, now: Date = Date()) -> [ChartPoint] {
+        let cutoff = now.addingTimeInterval(-window)
         var pts = samples.compactMap { sample -> ChartPoint? in
             guard sample.t >= cutoff, let v = sample.v[limitID] else { return nil }
             return ChartPoint(date: sample.t, value: v)
         }
-        pts = Self.downsample(pts, maxCount: 240)
-        pts.append(ChartPoint(date: Date(), value: currentPercent))
+        pts = downsample(pts, maxCount: 240)
+        pts.append(ChartPoint(date: now, value: currentPercent))
         return pts
     }
 
@@ -91,6 +104,10 @@ struct UsageChart: View {
 
     /// Chunk-averages history down to a renderable point count.
     static func downsample(_ pts: [ChartPoint], maxCount: Int) -> [ChartPoint] {
+        // A zero here divides by zero and traps on the Int conversion rather
+        // than throwing. The only call site passes 240, but this is a static
+        // API the tests drive directly, and a trap is the wrong way to find out.
+        guard maxCount > 0 else { return pts }
         guard pts.count > maxCount else { return pts }
         let chunkSize = Int(ceil(Double(pts.count) / Double(maxCount)))
         return stride(from: 0, to: pts.count, by: chunkSize).map { start in

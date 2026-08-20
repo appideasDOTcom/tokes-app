@@ -127,10 +127,16 @@ compiles under `actool` into both shipping forms, with the plist keys the bundle
 needs — all failure modes there are silent ones), and the distribution/capability
 layer (which credential sources each build offers, the security-scoped bookmark
 round-trip including token rotation and atomic replacement, and the build-vs-runtime
-sandbox audit), the credential-source dispatch for both providers, and the Test
-Connection buttons' resolve-fetch-report path. Tests touch no live credentials and make
-no network calls; the suite is not safe under `swift test --parallel`, which runs each
-class in its own process against shared `UserDefaults` suites.
+sandbox audit), the credential-source dispatch for both providers, the Test
+Connection buttons' resolve-fetch-report path, the poller's timer and observer
+lifecycle (a settings change reschedules, a Copilot toggle re-polls, waking from
+sleep polls, `stop()` silences all of it), the Settings import/forget flow end to
+end into the providers, and the security-scoped bookmark's refresh rule (a stale
+refresh must not downgrade a scoped grant to a plain one). Tests touch no live
+credentials and make no network calls; most classes now use a UUID in their
+`UserDefaults` suite name, but the suite is still not safe under
+`swift test --parallel`, which runs each class in its own process against shared
+suite files.
 
 `scripts/test.sh` runs the suite twice, because the App Store configuration
 compiles with `-DTOKES_APP_STORE` and that removes whole functions — the default

@@ -57,6 +57,12 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   - **The forbidden-string list covers behavior, not copy.** The App Store build
     still contains `~/.claude/.credentials.json` as import help text and as the
     open panel's starting directory. That's the feature, not a leak.
+- **Never redirect or pipe `build.sh --app-store`.** Twice now it has exited
+  141 (SIGPIPE) after printing "Build complete!", leaving a half-assembled,
+  `linker-signed` bundle with `Sealed Resources=none` that `verify-appstore.sh`
+  scores **14 failed** — which reads as a compliance regression rather than a
+  broken build. Run it bare and read the exit status; a good bundle audits
+  31/0.
 - **`scripts/verify-appstore.sh` has two shell traps baked into its comments,**
   both of which silently turned checks into passes before they were found:
   `grep -q` under `set -o pipefail` (the producer takes SIGPIPE, so the pipeline

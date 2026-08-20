@@ -42,6 +42,20 @@ final class ImportedCredentialFile {
     /// Human name used in error messages, e.g. "Claude Code credentials".
     private let describing: String
 
+    /// Test seam: how a bookmark is created. Nothing in the app replaces it.
+    /// The scoped-versus-plain distinction is the whole of the refresh rule
+    /// below and cannot be provoked otherwise — an unsandboxed test process
+    /// gets a security-scoped bookmark for any file it can read, so the
+    /// fallback arm is unreachable without this.
+    var makeBookmark: (URL, URL.BookmarkCreationOptions) throws -> Data = {
+        try $0.bookmarkData(options: $1, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    /// Test seam: opening the security scope, which returns false when the
+    /// grant is gone (the user moved the file to a place the extension does not
+    /// cover, or the extension was revoked). Real for the app, forceable here.
+    var beginAccess: (URL) -> Bool = { $0.startAccessingSecurityScopedResource() }
+
     init(defaultsKey: String, describing: String, defaults: UserDefaults = .standard) {
         self.defaultsKey = defaultsKey
         self.describing = describing
@@ -77,18 +91,28 @@ final class ImportedCredentialFile {
     /// Remembers `url` as the imported file. Call while any security scope
     /// obtained from the open panel is still open.
     func store(_ url: URL) throws {
+        try store(url, requireSecurityScope: false)
+    }
+
+    /// The shared body of a first import and a stale-bookmark refresh.
+    ///
+    /// `requireSecurityScope` is the difference between them, and it matters.
+    /// A *first* import may legitimately land on a plain bookmark — some volumes
+    /// and some unsandboxed configurations refuse security-scoped ones, and a
+    /// plain bookmark still works there. A *refresh* may not: silently replacing
+    /// a security-scoped grant with a plain bookmark downgrades access that
+    /// survived relaunch into access that does not, and the failure surfaces
+    /// much later as an unreadable file with nothing to connect it to. When the
+    /// scoped re-save fails the error propagates instead, and `resolve()`'s
+    /// `try?` leaves the existing bookmark in place — stale but still scoped,
+    /// which is strictly better than fresh but unscoped.
+    private func store(_ url: URL, requireSecurityScope: Bool) throws {
         do {
-            let bookmark = try url.bookmarkData(options: .withSecurityScope,
-                                                includingResourceValuesForKeys: nil,
-                                                relativeTo: nil)
-            stored = Stored(bookmark: bookmark, securityScoped: true)
+            stored = Stored(bookmark: try makeBookmark(url, .withSecurityScope),
+                            securityScoped: true)
         } catch {
-            // Some volumes (and some unsandboxed configurations) refuse
-            // security-scoped bookmarks; a plain one still works there.
-            let bookmark = try url.bookmarkData(options: [],
-                                                includingResourceValuesForKeys: nil,
-                                                relativeTo: nil)
-            stored = Stored(bookmark: bookmark, securityScoped: false)
+            if requireSecurityScope { throw error }
+            stored = Stored(bookmark: try makeBookmark(url, []), securityScoped: false)
         }
     }
 
@@ -122,12 +146,13 @@ final class ImportedCredentialFile {
         } catch {
             throw ImportedFileError.unreadable(describing)
         }
-        let opened = stored.securityScoped ? url.startAccessingSecurityScopedResource() : true
+        let opened = stored.securityScoped ? beginAccess(url) : true
         guard opened else { throw ImportedFileError.unreadable(url.path) }
         if isStale {
             // Refresh the bookmark while we still hold the scope, so the grant
             // survives the file being replaced (rotations rewrite atomically).
-            try? store(url)
+            // Never downgrade a scoped grant to a plain one while doing it.
+            try? store(url, requireSecurityScope: stored.securityScoped)
         }
         return Access(url: url, scoped: stored.securityScoped)
     }
@@ -167,9 +192,12 @@ enum RealHome {
         /// legitimate rather than a container escape. `showsHiddenFiles` is on
         /// because every file worth importing lives in a dot-directory.
         ///
-        /// Returns the chosen path, or nil if the user cancelled.
+        /// Returns the chosen URL, or nil if the user cancelled. Storing it is
+        /// the caller's job (`SettingsView.importOutcome`) — everything after
+        /// the modal returns is then reachable from a test, which the modal
+        /// itself never will be.
         @MainActor
-        func runImportPanel(title: String, message: String, startingAt directory: URL?) throws -> String? {
+        func runImportPanel(title: String, message: String, startingAt directory: URL?) -> URL? {
             let panel = NSOpenPanel()
             panel.title = title
             panel.message = message
@@ -180,9 +208,8 @@ enum RealHome {
             panel.showsHiddenFiles = true
             panel.treatsFilePackagesAsDirectories = true
             if let directory { panel.directoryURL = directory }
-            guard panel.runModal() == .OK, let url = panel.url else { return nil }
-            try store(url)
-            return url.path
+            guard panel.runModal() == .OK else { return nil }
+            return panel.url
         }
     }
 #endif

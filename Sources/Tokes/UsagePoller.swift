@@ -32,8 +32,15 @@ final class UsagePoller {
     private let credentials: TokenProviding
     private let copilotClient: CopilotUsageFetching
     private let copilotCredentials: TokenProviding
+    /// Where the two settings this class reads live. Injectable so a lifecycle
+    /// test can drive an interval or Copilot change in its own domain instead
+    /// of mutating the process-wide one another test may be reading.
+    private let defaults: UserDefaults
 
-    private var timer: Timer?
+    /// `private(set)` rather than `private` so a test can prove that a settings
+    /// change produced a *new* timer at the new interval. Nothing outside this
+    /// class may hold or invalidate it.
+    private(set) var timer: Timer?
     private var currentInterval: TimeInterval = 0
     private var currentCopilotEnabled = false
     private var inFlight = false
@@ -51,33 +58,50 @@ final class UsagePoller {
     /// without the test sleeping for it.
     var now: () -> Date = { Date() }
 
+    /// How long after a wake notification the catch-up poll fires, giving the
+    /// network a moment to reconnect. A test seam only — nothing changes it in
+    /// the app, and a test that waited the real three seconds for it would be
+    /// the slowest in the suite.
+    var wakeDelay: TimeInterval = 3
+
     /// Creates a poller that publishes into `state` and records samples to `history`.
     init(state: AppState, history: HistoryStore,
          client: UsageFetching = UsageClient(),
          credentials: TokenProviding = CredentialsProvider(),
          copilotClient: CopilotUsageFetching = CopilotClient(),
-         copilotCredentials: TokenProviding = CopilotCredentialsProvider()) {
+         copilotCredentials: TokenProviding = CopilotCredentialsProvider(),
+         defaults: UserDefaults = .standard) {
         self.state = state
         self.history = history
         self.client = client
         self.credentials = credentials
         self.copilotClient = copilotClient
         self.copilotCredentials = copilotCredentials
+        self.defaults = defaults
     }
 
     /// User-configured refresh interval in seconds, floored to 10.
     var configuredInterval: TimeInterval {
-        let v = UserDefaults.standard.double(forKey: SettingsKeys.refreshInterval)
+        let v = defaults.double(forKey: SettingsKeys.refreshInterval)
         return v >= 10 ? v : 60
     }
 
     /// Whether Copilot monitoring is enabled in Settings.
     var copilotEnabled: Bool {
-        UserDefaults.standard.bool(forKey: SettingsKeys.copilotEnabled)
+        defaults.bool(forKey: SettingsKeys.copilotEnabled)
     }
 
     /// Schedules the timer, polls immediately, and observes wake and settings changes.
+    ///
+    /// Starts from a clean slate every time. `addObserver` genuinely does not
+    /// deduplicate — measured: the same observer/selector/name pair registered
+    /// twice is delivered twice — so without the reset a second `start()` would
+    /// leave two live registrations. It would *not* double the network traffic,
+    /// because `tick()`'s `inFlight` guard coalesces the two resulting polls;
+    /// this is hygiene, not a fix for an observed bug. `AppDelegate` calls
+    /// `start()` once, but nothing in the type said so.
     func start() {
+        stop()
         currentCopilotEnabled = copilotEnabled
         schedule()
         refreshNow()
@@ -144,7 +168,7 @@ final class UsagePoller {
 
     /// Polls shortly after wake, giving the network a moment to reconnect.
     @objc private func didWake() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + wakeDelay) { [weak self] in
             self?.refreshNow()
         }
     }

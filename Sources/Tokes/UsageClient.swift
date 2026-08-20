@@ -103,13 +103,30 @@ struct UsageClient {
                                          severity: "normal", resetsAt: APIDate.parse(w.resets_at), isSession: false))
             }
         }
+        // Two entries claiming one id would reach `ForEach` over an
+        // `Identifiable` whose id repeats — SwiftUI's documented undefined
+        // behavior — and `UsageSample.v` is a dictionary, so history would keep
+        // only whichever came last. Keep the highest, which is the same rule
+        // `MenuBarLabel.weeklyScoped` uses: when two numbers compete for one
+        // slot, never hide the one nearest exhaustion.
+        var highest: [String: UsageLimit] = [:]
+        for limit in result {
+            if let existing = highest[limit.id], existing.percent >= limit.percent { continue }
+            highest[limit.id] = limit
+        }
+        var seen = Set<String>()
+        let deduped = result.compactMap { limit -> UsageLimit? in
+            guard seen.insert(limit.id).inserted else { return nil }
+            return highest[limit.id]
+        }
+
         // Stable display order: session, weekly_all, then scoped buckets.
         let rank: (UsageLimit) -> Int = { l in
             if l.id == "session" { return 0 }
             if l.id == "weekly_all" { return 1 }
             return 2
         }
-        return result.sorted { rank($0) < rank($1) }
+        return deduped.sorted { rank($0) < rank($1) }
     }
 }
 

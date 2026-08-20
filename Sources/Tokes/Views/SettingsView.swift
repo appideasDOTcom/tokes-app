@@ -274,20 +274,22 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Button(path == nil ? "Choose File…" : "Choose Another File…") {
                 setError(nil)
-                do {
-                    if let chosen = try file.runImportPanel(title: importTitle,
-                                                            message: importMessage,
-                                                            startingAt: directory) {
-                        setPath(chosen)
-                        onCredentialsChanged()
-                    }
-                } catch {
-                    setError(error.localizedDescription)
+                let picked = file.runImportPanel(title: importTitle,
+                                                 message: importMessage,
+                                                 startingAt: directory)
+                switch Self.importOutcome(picked: picked, into: file) {
+                case .cancelled:
+                    break
+                case .imported(let path):
+                    setPath(path)
+                    onCredentialsChanged()
+                case .failed(let message):
+                    setError(message)
                 }
             }
             if path != nil {
                 Button("Forget") {
-                    file.clear()
+                    Self.forget(file)
                     setPath(nil)
                     setError(nil)
                     onCredentialsChanged()
@@ -308,6 +310,43 @@ struct SettingsView: View {
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: - Import / forget
+
+    /// What the Choose File… button did with what the panel returned.
+    enum ImportOutcome: Equatable {
+        case cancelled
+        case imported(path: String)
+        case failed(message: String)
+    }
+
+    /// Everything the Choose File… button does after the open panel answers.
+    ///
+    /// Extracted for the same reason the connection tests were: a button in a
+    /// view that is never rendered into a window can never be pressed. The
+    /// modal itself stays untestable and stays in the view; this is the half
+    /// that decides whether an import happened, and it is the half that writes
+    /// to storage the credential providers read.
+    ///
+    /// A failure leaves the previously imported file alone — `store` either
+    /// replaces the bookmark or throws before touching it — so the path label
+    /// keeps showing the file that still works.
+    static func importOutcome(picked: URL?, into file: ImportedCredentialFile) -> ImportOutcome {
+        guard let picked else { return .cancelled }
+        do {
+            try file.store(picked)
+            return .imported(path: picked.path)
+        } catch {
+            return .failed(message: error.localizedDescription)
+        }
+    }
+
+    /// What the Forget button does to storage. One line, but the line the
+    /// credential providers see: after it, the selected source resolves to
+    /// `notImported` rather than to a bookmark nothing points at.
+    static func forget(_ file: ImportedCredentialFile) {
+        file.clear()
     }
 
     // MARK: - Normalization

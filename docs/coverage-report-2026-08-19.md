@@ -7,6 +7,12 @@ first release gets compared against, and the first coverage report this repo has
 had — so there is no prior report to disposition, and nothing below is a
 re-litigation of an earlier finding.
 
+> **Read §10 first.** §1–§8 are the audit as measured, and are left as
+> written; §9 disposes of ranked items 1–6, and **§10 closes the rest in three
+> phases and re-measures**. Two audit claims were wrong and are corrected
+> there: §4.12's doubled-poll prediction (§10.1) and §6's reading of
+> `testPopoverViewRendersErrorBanner` (§10.3).
+>
 > **§1–§8 are the audit as measured, and are left as written.** Ranked items
 > 1–6 and all three decisions in §8 were acted on in the same session; **§9 is
 > the disposition and the re-measurement**, and is the section to read for the
@@ -815,3 +821,211 @@ Unchanged and still worth doing, in the order they were ranked:
 Nothing in that list blocks the submission, and the four items that most
 directly protect the App Store build's onboarding path — the router, the
 connection testers, the normalization assertion, and the CI gate — are closed.
+
+## 10. Phased close-out of §9.4
+
+The remaining items were worked in three phases grouped by subsystem rather
+than by rank, so that no phase reopens a previous phase's diff. Each phase ends
+with `scripts/test.sh` in both configurations plus a coverage check narrowed to
+the files it touched; the full re-measurement is at the end, in §10.4.
+
+### 10.1 Phase A — the poller's timer and observers (§4.12, rank 12)
+
+`UsagePollerLifecycleTests`, 12 tests, no event loop beyond what `wait(for:)`
+already drains. Three seams were added to `UsagePoller` to make it reachable:
+
+| Seam | Why |
+|---|---|
+| `private(set) var timer` | so a test can prove a settings change produced a *new* timer at the new interval, and invalidated the one it replaced |
+| `defaults: UserDefaults = .standard` | so a lifecycle test drives an interval or Copilot change in its own suite instead of the process-wide domain another class is reading |
+| `var wakeDelay: TimeInterval = 3` | the wake catch-up delay. Nothing in the app changes it; a test that waited the real three seconds would be the slowest in the suite |
+
+Covered: the immediate poll and the scheduled interval (including `tolerance`),
+the scheduled timer's own block actually polling, rescheduling on an interval
+change, *not* rescheduling on an unrelated one, an immediate re-poll when
+Copilot is toggled on and again when toggled off, no poll for a settings change
+that touches neither, waking from sleep, and `stop()` silencing the timer and
+both observers.
+
+`UsagePoller.swift`: **83.33% → 97.94%** regions (2 missed). Both survivors are
+unreachable by construction — `stamp(nil)`'s early return and `oldest ?? now()`'s
+fallback are defensive, and every path that reaches them passes a non-nil date.
+
+**Every one of the 12 tests was mutation-checked**: with the reschedule, the
+re-poll, the wake registration or the observer removal disabled, the tests that
+should fail do, and the two false-arm tests fail when their `if` is made
+unconditional. Two of them initially passed under a combined mutant that masked
+them, which is why the observer-removal mutation was then run on its own.
+
+**One §4.12 claim was wrong, and only trying it showed it.** The audit predicted
+that a second `start()` would double every poll, because `addObserver` does not
+deduplicate. The premise holds — probed directly, a repeated
+observer/selector/name pair is delivered twice — but the conclusion does not:
+the second `refreshNow()` lands while the first `tick()` is still in flight, so
+the existing `inFlight` guard swallows it. `start()` now resets itself via
+`stop()` anyway, which is correct hygiene, but it is **not** a fix for an
+observed bug and the test says so rather than claiming a regression it cannot
+detect.
+
+Suite: **237 → 249 direct** (2 skipped), **234 → 246 App Store**, 0 failures.
+
+### 10.2 Phase B — Settings import/forget and the imported file (§4.9 rank 8, §4.8 rank 10)
+
+Grouped because they are the same code path: the button writes the bookmark the
+provider reads.
+
+**Behavior change — a stale refresh no longer downgrades a scoped grant.**
+`resolve()` refreshes the bookmark when the resolver reports it stale, which is
+what lets an imported file survive the atomic replacement a credential rotation
+performs. That refresh called the same `store()` a first import calls, and
+`store()` falls back to a plain bookmark when a security-scoped one cannot be
+created. A first import may legitimately land there; a refresh may not — it
+trades access that survives relaunch for access that does not, and the failure
+appears much later as an unreadable file with nothing to connect it to. The
+refresh now requires the scope it already had, and on failure the error
+propagates into `resolve()`'s existing `try?`, leaving the old bookmark in place:
+stale but still scoped, which is strictly better than fresh but unscoped.
+
+**Extraction — action bodies only.** `importOutcome(picked:into:)` and
+`forget(_:)` are static and take their inputs explicitly; the view keeps its
+layout and `@State`, and each button is now the modal call plus a three-line
+switch. `runImportPanel` returns the chosen `URL` instead of storing it and
+returning a path, so everything after the modal returns is reachable. The modal
+itself stays out of reach, permanently.
+
+Two seams on `ImportedCredentialFile` were needed and are documented as such:
+`makeBookmark` (an unsandboxed test process is granted a security-scoped
+bookmark for any file it can read, so the fallback arm is otherwise unreachable)
+and `beginAccess` (the revoked-grant arm).
+
+New tests: `ImportedFileBookmarkScopeTests` (6) and `SettingsImportTests` (9).
+Between them: a first import falling back to a plain bookmark and still reading,
+a plain bookmark never trying to open a scope it never had, a stale refresh
+refusing to downgrade, a stale refresh rewriting the bookmark when it can and
+the replacement still working on a fresh instance, a revoked grant, a file that
+resolves but cannot be read, import → the provider polls that token, forget →
+the provider returns an error that names Settings, cancel, a failed import
+keeping the working one, re-import replacing, and the Copilot button writing to
+the Copilot slot only.
+
+All 15 were mutation-checked: restoring the downgrade, making `forget` a no-op,
+and making `importOutcome` report success on cancel and on failure each fail
+exactly the tests that claim to cover them.
+
+| File | Before | After |
+|---|---|---|
+| `ImportedCredentialFile.swift` | 77.36% | **91.67%** |
+| `Views/SettingsView.swift` | 48.21% | **50.29%** |
+
+**SettingsView barely moved, and that is the honest result.** Its 87 remaining
+uncovered regions are `@State`/`@AppStorage` property-wrapper initializers,
+button action closures, `.onChange` handlers, and view branches that depend on
+state a hosting controller cannot change — the §5.6 harness limit, not missing
+tests. The logic those buttons *invoke* is now covered; what is left is SwiftUI
+plumbing that only a UI test could execute.
+
+**A measurement note, learned the hard way twice.** §3 records that a region
+appears in several function records and that reading one produces false zeros.
+There is a second form: `llvm-cov export <source-file>` also *filters out*
+function records whose primary file is elsewhere, which SwiftUI generates
+constantly. It reported `normalizeCredentialSources` as 0-execution when
+`llvm-cov show` puts it at 34. Export the whole binary and filter in the
+consumer; never pass the source path to `export`.
+
+Suite: **249 → 264 direct** (2 skipped), **246 → 261 App Store**, 0 failures.
+
+### 10.3 Phase C — the §4.13 batch and four small decisions
+
+Four behavior changes, each one branch wide, each decided rather than assumed.
+
+| Change | Decision |
+|---|---|
+| Copilot `entitlement: 0` (§4.6) | A real plan shape — some org seats and free accounts carry no premium allowance. Reads **0% with "Plan includes no premium requests"** instead of "Could not parse Copilot response", which blamed Tokes for the user's plan |
+| `makeTitle` out-of-range percent | **Clamped to 0…100**, the way `makeIcon` already clamped its bars. One value drew a full red bar beside the text " 420%" |
+| Duplicate limit ids in `mapLimits` | **Keep the highest, drop the rest** — the same rule `MenuBarLabel.weeklyScoped` uses, so the number nearest exhaustion is never the one hidden. Previously both survived into a `ForEach` over a repeated `Identifiable` |
+| `downsample(_:maxCount: 0)` | **Guard and return unchanged.** It trapped on `Int(ceil(10 / 0.0))` — unreachable from the app, reachable from the tests that drive the static API |
+
+`UsageChart.points` became a static function taking its clock, which is what
+makes the window filter assertable: it drops samples older than the window *and*
+keeps one limit's series out of another's chart, and before this it had only ever
+taken its accept arm because every seeded sample was in-window and carried every
+limit id. `EdgeCaseTests` (18) covers all of the above; all four changes were
+mutation-checked, including the `downsample` guard, whose mutant takes the whole
+run down with it.
+
+**A correction to the audit's own assertion-quality finding.** §6 called
+`testPopoverViewRendersErrorBanner`'s `> plain - 60` "the wrong direction". It is
+worse than that: the two states it compared are not comparable at all. With no
+snapshot the banner *replaces* the "Connecting…" block, so the error state is
+legitimately 35pt **shorter**, and the tolerance was hiding a number pointing the
+other way. Fixing the direction alone would have turned it red. It now compares
+against a state that keeps its limits, where the banner is purely additive, and
+asserts a strict inequality plus a longer message wrapping taller; a second test
+pins the swap so the next reader does not repeat the mistake. Also added: the
+chart at 0–3 samples, the "Collecting history…" state a new user sees on first
+launch, which no test had ever rendered.
+
+### 10.4 Re-measurement
+
+Instrumented run in both configurations, union taken per region across the two.
+
+| Metric | Audit (§1) | After §9 | **After §10** |
+|---|---|---|---|
+| Tests (direct) | 179 | 237 | **284** (2 skipped) |
+| Tests (App Store) | 176 | 234 | **281** |
+| Regions, direct | 64.09% | 70.81% | **74.26%** (704/948) |
+| Regions, App Store | 66.86% | 74.03% | **77.53%** (704/908) |
+| Regions, union | 64.65% | 71.57% | **75.00%** (711/948) |
+| Excl. the two AppKit surfaces | 81.93% | 85.23% | **88.82%** |
+
+| File | Audit | After §9 | After §10 (direct / App Store) |
+|---|---|---|---|
+| `UsagePoller.swift` | 83.54% | 83.33% | **97.94%** / 97.94% |
+| `ImportedCredentialFile.swift` | 77.36% | 77.36% | **91.67%** / 91.67% |
+| `UsageClient.swift` | 94.44% | 94.44% | **97.22%** / 97.22% |
+| `CopilotClient.swift` | 90.48% | 92.86% | **93.62%** / 93.62% |
+| `Views/UsageChart.swift` | 90.63% | 90.63% | **96.88%** / 96.88% |
+| `Views/SettingsView.swift` | 33.53% | 48.21% | **50.29%** / 54.34% |
+| `StatusItemController.swift` | 24.41% | 34.88% | 34.88% / 34.88% |
+| `CredentialsProvider.swift` | 51.61% | 67.69% | 67.69% / **95.56%** |
+| `CopilotCredentialsProvider.swift` | 56.36% | 74.14% | 74.14% / **95.00%** |
+
+Nine of the fifteen source files are now above 90% in the shipping
+configuration, and the two that are not — `StatusItemController` and
+`SettingsView` — hold 171 of the 244 uncovered regions between them.
+
+### 10.5 What is left, and why
+
+Everything remaining is one of four kinds, and none of them is a missing test
+someone could sit down and write:
+
+1. **Out of reach by construction.** `main.swift`, `AppDelegate`'s launch and
+   terminate hooks, `runImportPanel`'s modal, `SMAppService` register/unregister,
+   `RealHome`'s `getpwuid` fallback, and `Distribution.sandboxEntitlement`'s
+   `nil` paths (an unsigned or unreadable signature).
+2. **SwiftUI plumbing.** `SettingsView`'s 87 and most of `StatusItemController`'s
+   84: property-wrapper initializers, button action closures, `.onChange`
+   handlers, and view branches keyed on `@State` a hosting controller cannot
+   change. `NSHostingController` fires `.onAppear` and nothing else (§5.6). Only
+   a UI test reaches these; the logic behind every one of those buttons is now
+   covered by a static that a unit test drives.
+3. **Forbidden to touch.** The Claude Code keychain reader, `security` CLI
+   fallback, and `gh` CLI token in the direct build. These are the entire
+   residual of the two provider files there, and covering them would mean a test
+   reading another app's credential store.
+4. **Defensive and unreachable.** `UsagePoller`'s `stamp(nil)` guard and
+   `oldest ?? now()` fallback; `CopilotClient`'s two `NumberFormatter` fallbacks;
+   `HistoryStore`'s UTF-8 guards.
+
+Still genuinely open, unchanged from §9.4 and deliberately so:
+
+- **`swift test --parallel`** (§5.1, rank 14) — half done. `ImportedCredentialFileTests`
+  now uses a UUID suite name, as do all three classes added in §10;
+  `CredentialSourceDefaultsTests` still uses a fixed one. Nothing in `test.sh`
+  or CI passes `--parallel`.
+- **Swift 6 language mode** (§5.5, rank 16) — unmeasured, and correctly deferred
+  until after the submission.
+- **`ImportedFileError.unreadable`'s two arms disagree about their argument** —
+  bookmark resolution failure passes `describing` ("Claude Code credentials"),
+  a revoked grant passes the file path. Both render into "Could not read the
+  imported file (%@)". Cosmetic, and a copy decision rather than a test gap.
