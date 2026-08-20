@@ -76,6 +76,10 @@ Both are free, and the source is the same either way.
 brew install appideasDOTcom/tap/tokes
 ```
 
+**Not published yet** — the tap repo exists but has no cask in it, so this
+command does not work today. Build from source (below) or grab a zip from
+[Releases](https://github.com/appideasDOTcom/tokes-app/releases) meanwhile.
+
 Until builds are notarized, right-click Tokes.app → Open on first launch (or add
 `--no-quarantine` to the install command).
 
@@ -147,3 +151,12 @@ defaults behind `@AppStorage` are shared across worker processes.
 compiles with `-DTOKES_APP_STORE` and that removes whole functions — the default
 configuration alone would leave half the code unbuilt.
 
+### License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Chris Ostmo / appideas.com.
+
+Both distributions are the same MIT-licensed source; neither build adds
+proprietary components. The one third-party dependency,
+[ViewInspector](https://github.com/nalexn/ViewInspector), is also MIT and is a
+**test-only** dependency — it is linked into the test target alone and ships in
+no build, so the shipped binaries carry no third-party code.

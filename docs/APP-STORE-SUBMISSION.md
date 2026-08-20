@@ -1,174 +1,52 @@
 # App Store submission runbook
 
-Everything in this file needs an Apple account and a human. The code side is
-finished and audited — see `APP-STORE-COMPLIANCE.md` for what is already proven
-so you don't re-litigate it here.
+What is left to get Tokes into the Mac App Store, and how to do each release
+after that. The code side is finished and audited — see `APP-STORE-COMPLIANCE.md`
+for what is already proven, so you don't re-litigate it here.
 
-**Already verified locally, needs nothing from you:** the sandbox is genuinely
-on, the binary contains no out-of-container credential reader, every `Info.plist`
-key App Store Connect validates is present, the bundle is universal, and
-`productbuild` emits a correct installer (`customLocation="/Applications"`,
-`hostArchitectures="arm64,x86_64"`, `min os-version 14.0`). The only unproven
-links in the chain are the two signatures, because they need certificates that
-can only come from a paid account.
+The one-time account setup (App ID, certificates, provisioning profile, App
+Store Connect record) is **done**; its record is
+`retired/appstore-account-setup-2026-08-19.md`.
 
----
+## Where things stand
 
-## Order of operations
+Verified against App Store Connect on 2026-08-20:
 
-Two independent tracks converge at the build:
-
-```
-Step 1  App ID  ──►  Step 3  Provisioning profile  ──┐
-                                                     ├──►  Step 6  Build → validate → upload
-Step 2  Certificates (team-wide, not per-app)  ──────┘
-
-Step 4  App Store Connect record  (needs the App ID; otherwise parallel)
-```
-
-Certificates do not depend on the App ID, so Steps 1 and 2 can happen in either
-order. Registering a bundle ID is a Mac App Store requirement only — the
-Developer ID path the Homebrew cask uses never needs one.
-
-Prerequisite: an active Apple Developer Program membership on the team that will
-own the listing.
-
----
-
-## Step 1 — Register the App ID
-
-Certificates, IDs & Profiles → **Identifiers** → **+** → App IDs → App.
-
-- Description: `Tokes`
-- Bundle ID: **Explicit** → `com.appideas.tokes`
-- Capabilities: **none**. Sandbox entitlements are not portal capabilities —
-  nothing here corresponds to `app-sandbox`, `network.client`, or
-  `files.user-selected.read-only`. If you find yourself enabling something, stop.
-
-If `com.appideas.tokes` is rejected as taken, it is registered to another team —
-that is a support ticket, so check this early.
-
----
-
-## Steps 2 & 3 — Certificates and provisioning profile (scripted)
-
-Both are automated. `scripts/appstore-certs.py` creates the two certificates,
-imports them into the login keychain, backs each up as a `.p12`, and downloads
-the Mac App Store provisioning profile to where the build expects it.
-
-```sh
-scripts/appstore-certs.py --key-id <KEY_ID> --issuer <ISSUER_ID> \
-    --p8 /path/to/AuthKey_<KEY_ID>.p8 [--dry-run]
-```
-
-Needs an App Store Connect API key with **Admin** (or Account Holder) access —
-lesser roles cannot create distribution certificates. Create one at App Store
-Connect → Users and Access → Integrations → App Store Connect API → Team Keys.
-The `.p8` downloads exactly once.
-
-| Certificate | Signs |
+| | |
 |---|---|
-| `Apple Distribution` | `Tokes.app` |
-| `3rd Party Mac Developer Installer` | the `.pkg` |
+| App record | `Dev Tokes`, app id `6803324238`, bundle `com.appideas.tokes` |
+| Version record | **1.4.0**, `PREPARE_FOR_SUBMISSION` |
+| Attached build | **build 2** (v1.4.0), `VALID`, uploaded 2026-08-19 21:41 |
+| Listing text | pushed — description, subtitle, keywords present in `en-US` |
+| Screenshots | **none uploaded** (0 sets) — blocks submission |
+| Age rating | **unanswered** — blocks submission |
+| App Privacy | **unanswered** — blocks submission |
+| `whatsNew` | unset — not needed for a first release |
+| Submitted for review | **no** |
 
-Three safety properties, because this runs against a live account with other
-shipping apps on it:
-
-- **It never revokes as a side effect.** Revocation is a separate, explicit
-  `--revoke <id> <id>` that refuses ids it cannot find. Revoking a distribution
-  certificate invalidates every build already signed with it.
-- **It reuses before creating**, and only counts a certificate as reusable when
-  the matching private key is in *this* keychain. A certificate whose key lives
-  on another machine is reported, not replaced.
-- **Private keys are generated locally** with `openssl` and never leave the Mac.
-  Apple only ever sees a CSR. The `.p12` backups it writes are the only copy —
-  lose the keychain without them and the certificate can only be revoked and
-  reissued.
-
-Verify afterwards:
-
-```sh
-security find-identity -v      # NOT -p codesigning: installer certs don't appear there
-```
-
-Doing it by hand instead: Certificates, IDs & Profiles → Certificates → **+** →
-*Apple Distribution* and *Mac Installer Distribution* (Xcode → Settings →
-Accounts → Manage Certificates → **+** avoids the CSR round-trip), then Profiles
-→ **+** → Distribution → **Mac App Store Connect**, saved to
-`packaging/appstore/embedded.provisionprofile`.
+Build 1 (v1.2.0) is also `VALID` but will never attach to a 1.4.0 version
+record. Leave it.
 
 ---
 
-## Step 4 — App Store Connect record
+## Blocking the first submission
 
-<https://appstoreconnect.apple.com> → Apps → **+** → New App.
+Four items, all answered in the App Store Connect web UI, none of which a
+script can supply.
 
-- Platform **macOS**, Bundle ID `com.appideas.tokes`, SKU e.g. `tokes-macos`
-- Name must be unique across the whole store — check `Tokes` is free before
-  committing to it
+- [ ] **Screenshots.** `scripts/screenshots.sh` renders three at 2880×1800 into
+      `build/appstore/screenshots/`, driving the real views compiled as the App
+      Store flavor, on synthetic deterministic data — no real account usage is
+      published. At least one screenshot is required to submit. The generated
+      three are submittable as-is if the design pass slips; see `FOLLOW-UPS.md`
+      §3 for the framed versions.
+- [ ] **App Privacy questionnaire** — *Data Not Collected*, every category
+      answered. It must be answered, not skipped.
+- [ ] **Age rating** — 4+.
+- [ ] **Review notes** — text below. Needs a live OAuth token, valid on the day
+      of submission.
 
-Then fill in, all of which block submission:
-
-- **Name**: `Dev Tokes` — plain "Tokes" was already taken on the store. The app
-  keeps `CFBundleDisplayName = Tokes` and calls itself Tokes everywhere else.
-- **Category**: Developer Tools
-- **Price**: Free (and it stays free — no IAP, no subscription)
-- **Privacy policy URL**: `https://appideas.com/privacy-policy/`
-- **Support / marketing URL**: `https://appideas.com/tokes/`
-- **App Privacy** questionnaire: *Data Not Collected*. It must be answered, not
-  skipped.
-- **Screenshots**: `scripts/screenshots.sh` renders three at 2880×1800 into
-  `build/appstore/screenshots/`, driving the real views compiled as the App Store
-  flavor. Synthetic deterministic data — no real account usage is published.
-- Description, subtitle, keywords: ready in `packaging/appstore/listing.md`,
-  all fields checked against Apple's character limits.
-
-Export compliance is already handled — `ITSAppUsesNonExemptEncryption=false` is
-in `scripts/Info.plist`, so App Store Connect won't ask.
-
----
-
-## Step 5 — Bump the build number
-
-Increment `CFBundleVersion` in `scripts/Info.plist` for **every** upload,
-including a re-upload after a failed validation. App Store Connect rejects a
-duplicate even when `CFBundleShortVersionString` is unchanged.
-
-`scripts/appstore.sh --upload` checks this against the builds already in App
-Store Connect and stops before building, so forgetting costs a second rather
-than a full build-sign-transfer cycle.
-
----
-
-## Step 6 — Build, validate, upload
-
-One-time: copy `packaging/appstore/asc-credentials.env.example` to
-`asc-credentials.env` (git-ignored) and fill in the API key. After that the
-pipeline needs no arguments — signing identities are found in the keychain and
-credentials are read from that file, so nothing here requires a secret on a
-command line or in an agent's prompt.
-
-```sh
-scripts/appstore.sh                 # build, sign, compliance audit, .pkg
-scripts/appstore.sh --validate      # ...then validate against App Store Connect
-scripts/appstore.sh --upload        # ...then upload
-scripts/appstore.sh --build-status  # what Apple has done with it
-```
-
-`appstore.sh` runs `verify-appstore.sh` and refuses to package if the audit
-fails. `--upload` additionally refuses a `CFBundleVersion` that has already been
-uploaded, and does so *before* building rather than after the transfer.
-
-Transporter.app also works — drag `build/appstore/Tokes-<version>.pkg` in — and
-needs no API key, just an Apple ID sign-in.
-
-**Uploading is not submitting.** An uploaded build sits under the app's Builds
-section in App Store Connect indefinitely. Nothing reaches App Review until a
-human fills in the metadata and presses *Submit for Review*.
-
----
-
-## Step 7 — Review notes (short, but skipping it costs a rejection cycle)
+## Review notes (short, but skipping it costs a rejection cycle)
 
 Two things will get Tokes rejected if unstated, and both are cheap to prevent.
 
@@ -176,7 +54,8 @@ Two things will get Tokes rejected if unstated, and both are cheap to prevent.
    launch. Reviewers routinely reject such apps as "the app does not launch" or
    "we were unable to locate any functionality". Say so in the first line.
 2. **It needs an account the reviewer doesn't have.** Paste a live OAuth token
-   and check it is still valid on submission day.
+   and check it is still valid on submission day — expect a resubmission if a
+   review round-trip outlives it.
 
 Suggested text:
 
@@ -192,3 +71,71 @@ Suggested text:
 >
 > Tokes reads the signed-in user's own Anthropic account usage. It collects no
 > data, has no server, and transmits nothing to us.
+
+---
+
+## Every upload, from here on
+
+### 1. Bump the build number
+
+Increment `CFBundleVersion` in `scripts/Info.plist` for **every** upload,
+including a re-upload after a failed validation. App Store Connect rejects a
+duplicate even when `CFBundleShortVersionString` is unchanged. It is monotonic
+across the whole app and is never reset when the marketing version changes.
+
+`scripts/appstore.sh --upload` checks this against the builds already in App
+Store Connect and stops *before* building, so forgetting costs a second rather
+than a full build-sign-transfer cycle.
+
+### 2. Build, validate, upload
+
+The pipeline needs no arguments and no secrets: signing identities are found in
+the login keychain and API credentials are read from
+`packaging/appstore/asc-credentials.env` (git-ignored; the `.example` documents
+it). Never ask an operator to paste a key or an identity string.
+
+```sh
+scripts/appstore.sh                 # build, sign, compliance audit, .pkg
+scripts/appstore.sh --validate      # ...then validate against App Store Connect
+scripts/appstore.sh --upload        # ...then upload
+scripts/appstore.sh --build-status  # what Apple has done with it
+scripts/appstore.sh --sync-version  # push CFBundleShortVersionString to the version record
+```
+
+`appstore.sh` runs `verify-appstore.sh` and refuses to package if the audit
+fails. Transporter.app also works — drag `build/appstore/Tokes-<version>.pkg`
+in — and needs no API key, just an Apple ID sign-in.
+
+**Never redirect or pipe `build.sh --app-store`.** Twice it has exited 141
+(SIGPIPE) after printing "Build complete!", leaving a half-assembled,
+`linker-signed` bundle that the auditor scores 14 failed — which reads as a
+compliance regression rather than a broken build. Run it bare and read the exit
+status.
+
+### 3. Attach the build and submit
+
+**Uploading is not submitting.** An uploaded build sits under the app's Builds
+section in App Store Connect indefinitely. Nothing reaches App Review until a
+human attaches the build to the version record, fills in the metadata above, and
+presses *Submit for Review*.
+
+`--sync-version` matters here: `CFBundleShortVersionString` and the App Store
+Connect version record must agree or the build never appears in the version's
+build picker, with no error saying why.
+
+---
+
+## After the first approval
+
+- **Revisit keywords and subtitle.** Both are deliberately brand-free, which is
+  the right first-submission call and a real discoverability cost — nobody
+  searching for a Claude usage monitor types `usage,quota,limits`. Adding
+  `claude,copilot` is the highest-value and highest-risk single edit in the
+  listing (Guideline 5.2.1 is enforced in those fields, not the description).
+  Worth trying with an approval already banked.
+- **`whatsNew`** becomes required for updates. `scripts/appstore-metadata.py`
+  does not currently push it.
+- **Copilot contingency.** If review objects under 5.2.2 to
+  `api.github.com/copilot_internal/user`, dropping Copilot from the App Store
+  build is a one-line change to `CopilotCredentialSource.available(for:)` plus
+  the `copilotEnabled` default. The direct build keeps it.

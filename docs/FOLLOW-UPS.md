@@ -1,13 +1,15 @@
 # Follow-ups
 
-Open items carried out of the App Store compliance work (2026-08-19). Each says
-what it is, why it is not done, and what "done" looks like — so it can be picked
-up cold by a later session.
+Open items carried out of the App Store compliance work. Each says what it is,
+why it is not done, and what "done" looks like — so it can be picked up cold by
+a later session.
 
-Status at the time of writing: version **1.4.0**, `CFBundleVersion` **2**, App
-Store Connect version record **1.4.0 / PREPARE_FOR_SUBMISSION**, listing text
-pushed, build 1 (v1.2.0) uploaded and `VALID` but orphaned. Nothing submitted
-for review.
+**Status, verified against App Store Connect 2026-08-20:** version **1.4.0**,
+`CFBundleVersion` **2**, version record **1.4.0 / PREPARE_FOR_SUBMISSION**,
+listing text pushed, **build 2 uploaded, `VALID`, and attached to the version
+record**. Build 1 (v1.2.0) is also `VALID` and permanently orphaned — leave it.
+Nothing submitted for review. The blockers are all web-UI answers; they live in
+`APP-STORE-SUBMISSION.md` rather than being duplicated here.
 
 ---
 
@@ -98,48 +100,60 @@ submittable as-is if the design pass slips.
 
 ## Before submission
 
+The four web-UI blockers (App Privacy, age rating, screenshots, review notes)
+are tracked in `APP-STORE-SUBMISSION.md`, which also carries the current App
+Store Connect state. What remains here is the one item that is neither a web
+form nor a code change:
+
 - [ ] **TestFlight end-to-end run.** The one claim not backed by the test
       harness. A MAS-signed bundle cannot launch locally (`launchd` POSIX 163),
       so everything verified so far is either the ad-hoc build or static analysis
-      of the signed one. Upload build 2, install via TestFlight, and confirm the
-      sandboxed app polls, imports a credentials file through the powerbox, and
-      draws the menu bar item. Until then, do not describe the submission build
-      as verified end to end.
-- [ ] **App Privacy questionnaire** — "Data Not Collected", every category
-      answered. Web UI; blocks submission.
-- [ ] **Age rating** — 4+.
-- [ ] **Screenshots uploaded** — see §3.
-- [ ] **Review notes** — draft in `docs/APP-STORE-SUBMISSION.md`. Needs a live
-      OAuth token, valid on the day of submission, and must lead with "this is a
-      menu bar app with no Dock icon".
-- [ ] **Upload build 2** at 1.4.0 so a build actually attaches to the version
-      record. Build 1 is v1.2.0 and will never attach.
+      of the signed one. Build 2 is uploaded and attached; install it via
+      TestFlight and confirm the sandboxed app polls, imports a credentials file
+      through the powerbox, and draws the menu bar item. Until then, do not
+      describe the submission build as verified end to end.
+
+*Done 2026-08-19:* build 2 uploaded at 1.4.0 and attached to the version record.
 
 ## After the first approval
 
-- [ ] **Revisit keywords and subtitle.** Both are deliberately brand-free, which
-      is the right first-submission call and a real discoverability cost —
-      nobody searching for a Claude usage monitor types `usage,quota,limits`.
-      Adding `claude,copilot` is the highest-value and highest-risk single edit
-      in the listing (Guideline 5.2.1 is enforced in those fields, not the
-      description). Worth trying with an approval already banked.
-- [ ] **Copilot contingency.** If review objects under 5.2.2 to
-      `api.github.com/copilot_internal/user`, dropping Copilot from the App Store
-      build is a one-line change to `CopilotCredentialSource.available(for:)`
-      plus the `copilotEnabled` default. The direct build keeps it.
+Both items — the keyword/subtitle revisit and the Copilot 5.2.2 contingency —
+are recorded in `APP-STORE-SUBMISSION.md` under "After the first approval",
+where whoever is doing the next release will actually be reading.
 
 ## Housekeeping
 
-- [ ] **Homebrew cask is stale** — `packaging/homebrew/tokes.rb` still says
-      `version "1.0.0"` with a placeholder sha256. Update at the next Homebrew
-      release, not before.
+- [ ] **`debugLogging` is on in the operator's real preference domain.**
+      `~/Library/Preferences/com.appideas.tokes.plist` carries
+      `debugLogging => true`, set 2026-08-20 00:09, and the running Tokes is
+      still appending to `/tmp/tokes-debug.log`. The 2026-08-20 coverage report
+      claimed this was cleaned up during its run; it was not — the plist has not
+      been written since 00:09, so the delete never landed. **This is the second
+      time a cleanup here was recorded without being read back.** Clear it with
+      `defaults delete com.appideas.tokes debugLogging` and then
+      `defaults read com.appideas.tokes debugLogging`, which must report the key
+      does not exist. Left set deliberately for now — the operator may be
+      watching the current run of 429s.
+- [ ] **The Homebrew tap has never been published.**
+      `appideasDOTcom/homebrew-tap` exists and is public but is **empty** — no
+      cask was ever pushed — so `brew install appideasDOTcom/tap/tokes` does not
+      work today, despite `RELEASING.md` having documented it as if it did. The
+      repo's own `packaging/homebrew/tokes.rb` is still the 1.0.0 template with
+      a placeholder sha256. Two GitHub releases (v1.0.0, v1.2.0) exist, so only
+      the tap side is missing. Do both at the next Homebrew release, not before.
 - [ ] **Developer ID signing has never been exercised.** `scripts/release.sh`
       supports `--sign`/`--notarize` but no notarized build has shipped, which is
       why the cask still carries its `caveats` block. Separate certificate from
-      the App Store ones; `scripts/appstore-certs.py` does not create it.
+      the App Store ones; `scripts/appstore-certs.py` does not create it, and
+      `security find-identity -v` confirms the keychain holds no Developer ID
+      Application identity.
 - [ ] **Two orphan sandbox containers** —
       `~/Library/Containers/com.appideas.tokes.{sandboxprobe,powerboxprobe}` from
-      verification harnesses. `containermanagerd` protects them from `rm` even as
-      the owner; deletable from Finder. Harmless.
+      verification harnesses, both still present. `containermanagerd` protects
+      them from `rm` even as the owner; deletable from Finder. Harmless.
 - [ ] **`whatsNew`** is unset — not needed for a first release, required for
       updates. `scripts/appstore-metadata.py` does not currently push it.
+- [ ] **`verify-appstore.sh`'s entitlement-count failure message prints an empty
+      count.** Fed a bundle with zero `com.apple.security` entitlements it reads
+      `"  com.apple.security entitlements (expected 3)"`. The check fails
+      correctly; only the message is wrong. Cosmetic.

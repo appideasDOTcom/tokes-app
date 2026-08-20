@@ -92,7 +92,7 @@ scripts/verify-appstore.sh           # static + runtime audit
 
 `scripts/test.sh` runs the suite twice, because `-DTOKES_APP_STORE` removes
 whole functions and the default configuration alone leaves that half unbuilt.
-315 tests direct, 312 App Store (the three fewer are the Copilot editor-lookup
+319 tests direct, 316 App Store (the three fewer are the Copilot editor-lookup
 tests, guarded out with the reader they cover; two direct-build skips become
 real assertions on the App Store side, where the `sourceUnavailable` paths they
 cover actually exist).
@@ -112,8 +112,12 @@ cover actually exist).
   the container rather than `/tmp`, the history store redirected into the
   container, and `~/Library/Application Support/Tokes` was not touched
 
-It is a real check, not a rubber stamp: fed the direct build it reports 19
-failures, including the `NSTask` link.
+It is a real check, not a rubber stamp: fed the direct build, its static
+section alone reports **22 failures** — every forbidden string, both
+architectures' `NSTask` link, all three entitlements missing, and the nine
+`DT*` provenance keys a SwiftPM bundle has to write itself. Re-measured
+2026-08-20; it was 19 before the auditor gained the `/usr/bin/gh` string and
+turned the entitlement-count check from a warning into a failure.
 
 Descriptive UI copy is deliberately *not* on the forbidden-string list. The App
 Store build still says `~/.claude/.credentials.json` in the import help text and
@@ -155,15 +159,16 @@ user's own OAuth token: their own account, their own data.
 
 None of this is a code problem; no agent can obtain them.
 
-- Apple Developer Program membership (separate from the Developer ID signing the
-  Homebrew path uses).
-- An **Apple Distribution** (or *3rd Party Mac Developer Application*)
-  certificate **and** a **3rd Party Mac Developer Installer** certificate. The
-  keychain currently holds only *Apple Development* identities, which cannot
-  sign a submission.
-- A Mac App Store provisioning profile for `com.appideas.tokes`, saved as
-  `packaging/appstore/embedded.provisionprofile` (git-ignored).
-- An App Store Connect app record.
+**Satisfied 2026-08-19** — kept here because the list is what a reader checks
+against, and "done" is the answer: Apple Developer Program membership; the
+**Apple Distribution** and **3rd Party Mac Developer Installer** certificates
+(both now in the login keychain, team `636YZVZ34J`); a Mac App Store
+provisioning profile at `packaging/appstore/embedded.provisionprofile`; and an
+App Store Connect record (`Dev Tokes`, app id `6803324238`). The record of how
+they were obtained is `retired/appstore-account-setup-2026-08-19.md`.
+
+**Still outstanding:**
+
 - **Review notes with a working credential.** A reviewer has no Claude
   subscription, so with no token the app can only show its error state. Paste a
   live OAuth token into App Store Connect's review notes along with: *"Open
@@ -171,3 +176,10 @@ None of this is a code problem; no agent can obtain them.
   token', paste the token above, click Save Token, then Test Connection."*
   Tokens expire — check it is still valid on the day of submission, and expect
   a resubmission if a review round-trip outlives it.
+- **App Privacy questionnaire, age rating, and at least one screenshot.** All
+  three are web-UI answers and all three block submission. See
+  `APP-STORE-SUBMISSION.md`.
+- **A Developer ID Application certificate**, for the *other* pipeline. It is
+  separate from the two App Store certificates, `scripts/appstore-certs.py`
+  does not create it, and the keychain does not hold one — so the notarized
+  Homebrew path has never been exercised end to end.

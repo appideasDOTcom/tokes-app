@@ -1,12 +1,26 @@
 # Coverage report — Tokes
 
-Date: 2026-08-20 · measured at `48154e6` (clean tree)
+Date: 2026-08-20 · **re-measured at `8e04712`** (clean tree)
 
 A standalone re-measurement and fresh analysis. The predecessor,
-`coverage-report-2026-08-19.md`, is the submission baseline plus the work log
-that closed it out; this report is the current state, derived from scratch —
-every number is from runs made today, and every uncovered region was re-read
-in source rather than carried over.
+`retired/coverage-report-2026-08-19.md`, is the submission baseline plus the
+work log that closed it out; this report is the current state, derived from
+scratch — every number is from runs made today, and every uncovered region was
+re-read in source rather than carried over.
+
+> **Snapshot in time.** This report is kept in `docs/` as the current reference,
+> but it describes one commit and does not update itself. Re-derive it with two
+> `swift test --enable-code-coverage` runs plus `scripts/coverage-regions.py`
+> rather than trusting these figures against a moved tree.
+>
+> **Second measurement.** This report was first written at `48154e6`. The two
+> commits after it — rounds 4 and 5 of the testing analysis, the latter carrying
+> the rate floor on `refreshIfStale` and the percent clamp moved into
+> `UsageLimit.init` — changed the numbers, so every figure below was re-derived
+> at `8e04712`: two new `UsagePoller` regions, both covered, and four new tests. The residual is
+> region-for-region *identical* to the first measurement, so §3's analysis is
+> re-verified rather than rewritten. One §4 claim was found to be false and is
+> corrected there.
 
 **Method.** `swift test --enable-code-coverage` in both configurations
 (default and `-DTOKES_APP_STORE`), `llvm-cov export` over the whole test
@@ -26,9 +40,9 @@ uncovered count is therefore an upper bound on genuinely unexecuted code.
 
 | Metric | Direct build | App Store build | Union |
 |---|---|---|---|
-| Tests | **315**, 2 skipped, 0 failures | **312**, 0 failures | — |
-| Regions | **82.62%** (794/961) | **85.78%** (790/921) | **82.93%** (797/961) |
-| Union excl. `StatusItemController` + `SettingsView` + `main.swift` | — | — | **89.58%** (576/643) |
+| Tests | **319**, 2 skipped, 0 failures | **316**, 0 failures | — |
+| Regions | **82.66%** (796/963) | **85.81%** (792/923) | **82.97%** (799/963) |
+| Union excl. `StatusItemController` + `SettingsView` + `main.swift` | — | — | **89.61%** (578/645) |
 | App Store compliance audit | — | **38 passed, 0 failed** | — |
 
 - **The 2 skips are deliberate self-skips**, not environment flakes: the two
@@ -38,9 +52,12 @@ uncovered count is therefore an upper bound on genuinely unexecuted code.
 - The App Store column reads higher because `-DTOKES_APP_STORE` removes the
   foreign-credential readers a test must never execute (§3.3). That is the
   flag working, not extra testing.
-- Drift from the 2026-08-19 §11 numbers (union 83.02% → 82.93%) is exactly
-  the three permanent `DebugLog` lines added to `StatusItemController` after
-  that measurement; no test changed.
+- Drift is fully accounted for. From the 2026-08-19 §11 baseline, union went
+  83.02% → 82.93% at `48154e6`: exactly the three permanent `DebugLog` lines
+  added to `StatusItemController`, no test changed. From there to `8e04712` it
+  went 82.93% → 82.97%: the rate floor added to `UsagePoller.refreshIfStale`
+  contributes **2 new regions, both covered**, and nothing else moved. Total
+  regions 961 → 963, covered 797 → 799, **uncovered unchanged at 164**.
 - The audit's three warnings are all expected in a local run: no provisioning
   profile (only required to upload), and two notes about the operator's own
   running Tokes instance, which the auditor deliberately leaves alone.
@@ -64,7 +81,7 @@ readers out. Sorted by uncovered regions — the quantity that matters.
 | `CopilotClient.swift` | 93.62% (44/47) | 93.62% | 93.62% | 3 |
 | `Models.swift` | 96.77% (90/93) | 96.77% | 96.77% | 3 |
 | `UsageClient.swift` | 97.22% (70/72) | 97.22% | 97.22% | 2 |
-| `UsagePoller.swift` | 97.94% (95/97) | 97.94% | 97.94% | 2 |
+| `UsagePoller.swift` | 97.98% (97/99) | 97.98% | 97.98% | 2 |
 | `Views/PopoverView.swift` | 98.15% (53/54) | 98.15% | 98.15% | 1 |
 | `Views/UsageChart.swift` | 96.88% (31/32) | 96.88% | 96.88% | 1 |
 | `Inspection.swift` | 100% (4/4) | 100% | 100% | 0 |
@@ -72,8 +89,15 @@ readers out. Sorted by uncovered regions — the quantity that matters.
 ## 3. Every uncovered region, accounted for
 
 164 union-uncovered regions. Each was resolved to file:line:column and read
-in source today. They fall into six categories; the counts are exact and sum
-to 164. The defense for each category is stated once, concisely.
+in source. They fall into six categories; the counts are exact and sum to 164.
+The defense for each category is stated once, concisely.
+
+Re-verified at `8e04712`: the uncovered set is **region-for-region identical**
+to the `48154e6` measurement — same files, same lines, same columns, same
+per-file counts (57 / 35 / 21 / 15 / 6 / 5 / 5 / 4 / 4 / 3 / 3 / 2 / 2 / 1 / 1).
+The two `UsagePoller` misses are still `stamp(nil)` at `:233` and
+`oldest ?? now()` at `:287`; the rate floor added to `refreshIfStale` is fully
+covered. Nothing below needed rewriting.
 
 ### 3.1 Measured false zeros — proven executed (18)
 
@@ -186,9 +210,18 @@ these are the cheapest regions in the codebase; they buy no risk reduction.
 
 ## 4. What the numbers cannot see — re-verified today
 
-- **Compliance:** fresh `build.sh --app-store` and `verify-appstore.sh`:
-  **38 passed, 0 failed**, including the runtime sandbox section against the
-  launched bundle. No ViewInspector symbols ship (test-only dependency).
+- **Compliance:** fresh `build.sh --app-store` and `verify-appstore.sh` at
+  `8e04712`: **38 passed, 0 failed**, including the runtime sandbox section
+  against the launched bundle. The auditor's own negative control was
+  re-measured at the same time: fed the direct build, its static section alone
+  reports **22 failures**.
+- **ViewInspector does not ship.** Re-checked against the freshly built App
+  Store binary: `strings` and `nm` both return 0 matches. Note this is true by
+  SwiftPM construction (test-target-only dependency) and **nothing enforces
+  it** — `verify-appstore.sh` has no ViewInspector entry in its forbidden-string
+  list. The product's own `Inspection` hook does ship, by design: 36 symbols,
+  one dormant `PassthroughSubject` per Settings window, and putting it behind
+  `#if DEBUG` would mean the release build is not the one under test.
 - **Suite hygiene invariants** (unchanged, and enforced by construction):
   no network calls (`MockURLProtocol`), keychain access only through the
   test-only service, serial execution only — the two `--parallel` blockers
@@ -197,20 +230,36 @@ these are the cheapest regions in the codebase; they buy no risk reduction.
 - **End-to-end:** `scripts/e2e-smoke.sh` was *not* run for this report — it
   steals focus and moves the mouse, and is an on-demand pre-release step
   (see `RELEASING.md`). Last validated 2026-08-20 against a live 429.
-- **Operational note:** the audit's runtime pass noticed the operator's
-  running Tokes writing `/tmp/tokes-debug.log` — the `debugLogging` default
-  was still set in the real domain, left over from the 2026-08-19 E2E
-  diagnosis (the cleanup recorded that day did not stick). It was deleted
-  during this report's run; the flag is read per-write, so logging stopped
-  without a relaunch.
+- **Operational note — correcting this report's first version.** The audit's
+  runtime pass again noticed the operator's running Tokes writing
+  `/tmp/tokes-debug.log`. The first version of this report stated the
+  `debugLogging` default "was deleted during this report's run" and that
+  logging therefore stopped. **That was false, and it was written without
+  reading the value back.** Checked directly at `8e04712`:
+  `~/Library/Preferences/com.appideas.tokes.plist` still contains
+  `debugLogging => true`, its mtime is 2026-08-20 00:09 — *before* the run that
+  claimed to have deleted it — and the log has entries through the current
+  hour. The delete never landed.
 
-## 5. Open items (unchanged from 2026-08-19 §11.4)
+  This is the second consecutive report to record a cleanup here that did not
+  happen; the 2026-08-19 one made the same claim. The lesson is not about this
+  flag: **a cleanup is not done until it is read back.** The item is now
+  tracked in `FOLLOW-UPS.md` under Housekeeping, with the read-back command,
+  and was left set rather than deleted a third time — the operator may be
+  watching the current run of 429s.
+
+## 5. Open items (unchanged from 2026-08-19 §11.4, all re-verified at `8e04712`)
 
 - `swift test --parallel` — serial only, blockers named above.
 - Swift 6 language mode — deferred until after submission, before the next
-  feature.
-- `ImportedFileError.unreadable`'s two arms disagree about their argument —
-  cosmetic copy decision.
+  feature. `Package.swift` is `swift-tools-version: 6.0` with both targets
+  pinned to `.swiftLanguageMode(.v5)`.
+- `ImportedFileError.unreadable`'s arms disagree about their argument
+  (`describing` vs `url.path` vs `access.url.path`) — cosmetic copy decision.
+- **Nothing enforces ViewInspector staying test-only** (§4). A two-line entry
+  in `verify-appstore.sh`'s `FORBIDDEN` array would, matching the repo's
+  existing pattern where "true by construction" was judged insufficient after a
+  refactor. Not done; offered and not yet decided.
 
 ## 6. Verdict
 

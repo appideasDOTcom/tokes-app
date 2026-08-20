@@ -1,14 +1,22 @@
 # Releasing Tokes
 
-## One-time setup
+## One-time setup — half done
+
+`appideasDOTcom/homebrew-tap` exists and is public, but **it is empty**: no cask
+has ever been pushed to it. So the install command below does not work yet, and
+`packaging/homebrew/tokes.rb` in this repo is still the 1.0.0 template with a
+placeholder sha256. Finish it with:
 
 ```sh
-# Create the tap repo:
-gh repo create appideasDOTcom/homebrew-tap --public --clone
-mkdir homebrew-tap/Casks
-cp /Users/costmo/Documents/dev/appideas/tokes/packaging/homebrew/tokes.rb homebrew-tap/Casks/
-# Commit and push the tap.
+gh repo clone appideasDOTcom/homebrew-tap
+mkdir -p homebrew-tap/Casks
+cp packaging/homebrew/tokes.rb homebrew-tap/Casks/
+# Bump version + sha256 from the release notes first, then commit and push.
 ```
+
+Two GitHub releases exist already (v1.0.0, v1.2.0) — the tag → CI → release path
+works. Only the tap side is unfinished. Neither release is notarized, which is
+why the cask still needs its `caveats` block.
 
 ## Each release
 
@@ -19,7 +27,7 @@ cp /Users/costmo/Documents/dev/appideas/tokes/packaging/homebrew/tokes.rb homebr
 3. In the tap repo, update `Casks/tokes.rb`: bump `version`, paste the sha256
    from the release notes. Commit and push.
 
-Users install with:
+Users will install with — once the tap actually has a cask in it:
 
 ```sh
 brew install appideasDOTcom/tap/tokes
@@ -75,9 +83,11 @@ nothing disables it short of editing `build.sh`.
 ## Mac App Store
 
 A separate artifact from the notarized zip above, built from the same source
-with `-DTOKES_APP_STORE`. Read `APP-STORE-COMPLIANCE.md` for the design and `APP-STORE-SUBMISSION.md` for the account-side runbook first — it explains
-what that flag removes and why, and lists the account-level prerequisites
-(certificates, provisioning profile, review notes) that no script can supply.
+with `-DTOKES_APP_STORE`. Read `APP-STORE-COMPLIANCE.md` for the design and
+`APP-STORE-SUBMISSION.md` for what is left to submit — the first explains what
+that flag removes and why, the second carries the current App Store Connect
+state and the blockers no script can supply. The one-time account setup is done
+and recorded in `retired/appstore-account-setup-2026-08-19.md`.
 
 Build and audit locally, no Apple certificates required:
 

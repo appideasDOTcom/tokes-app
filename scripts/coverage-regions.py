@@ -10,7 +10,7 @@ Prints per-file region coverage for both configurations, the union, the
 exclusion row the reports quote, and every union-uncovered region resolved to
 file:line:col with its source line.
 
-Method notes (each learned the hard way — see docs/coverage-report-2026-08-19.md
+Method notes (each learned the hard way — see docs/retired/coverage-report-2026-08-19.md
 and -2026-08-20.md):
 - Export the WHOLE test binary. `llvm-cov export <source-file>` silently drops
   function records whose primary file is elsewhere, which SwiftUI generates
