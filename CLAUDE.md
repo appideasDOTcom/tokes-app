@@ -43,6 +43,26 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   API is 429ing and the real app has nothing to draw): use the `visual-verify` skill in
   `.claude/skills/`.
 
+## Working with the rest of the team
+
+Tokes talks to other APPideas agents over the `orchestratinator` MCP server
+(channel `appideas-tokes-app`, agent `tokes-developer` — see `.mcp.json`).
+
+- **Read `docs/multi-agent-team-playbook.md` before using it.** It is the company
+  onboarding for how agent teams communicate: broadcast-only messages, tasks for
+  asks vs messages for events, contracts for durable interfaces, and when to stop
+  and ask the operator. The rules there exist because each was learned from a real
+  failure.
+- **Call `get_contract` before assuming any interface another agent owns.** The
+  channel carries `assets.app_icon` (the designer's icon package and its
+  invariants) and `build.app_icon` (this repo's build integration). Neither is
+  derivable from the code.
+- Tokes is the **lone** agent for this repo — there is no free/pro counterpart, so
+  the playbook's free/pro loop pattern does not apply here. Work is driven
+  interactively; the operator says "nudge" when something is waiting.
+- The company designer is `appideas-designer`. Verify what any other agent tells
+  you by running it yourself before relying on it.
+
 ## Rules
 
 - Tests must make no network calls (use `MockURLProtocol`) and never touch real

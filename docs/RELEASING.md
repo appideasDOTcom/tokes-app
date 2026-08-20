@@ -62,3 +62,19 @@ Open question for when we take this up: the Claude usage endpoint is
 `api/oauth/usage` and is OAuth-scoped — whether a standard Anthropic API key
 authenticates against it at all is unverified. Check that before committing to an
 API-key design.
+
+## Not yet provisioned (blocks App Store submission regardless of code)
+
+None of these is a code problem, and no agent can obtain them — they are
+account-level and need Costmo:
+
+- Apple Developer Program membership for the App Store (separate from the
+  Developer ID signing used by the Homebrew/notarized path above).
+- A **Mac App Store distribution certificate** and a matching provisioning
+  profile. `release.sh` currently signs ad-hoc or with Developer ID; neither is
+  accepted for App Store submission.
+- An App Store Connect app record, needed before anything can be uploaded.
+
+The App Store build is also a different artifact from the one above: a signed
+`.pkg` via `productbuild`/`productsign` uploaded with Transporter, not the
+notarized `.zip` the cask consumes. Both pipelines have to keep working.
