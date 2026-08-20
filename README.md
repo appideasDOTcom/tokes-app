@@ -132,11 +132,16 @@ Connection buttons' resolve-fetch-report path, the poller's timer and observer
 lifecycle (a settings change reschedules, a Copilot toggle re-polls, waking from
 sleep polls, `stop()` silences all of it), the Settings import/forget flow end to
 end into the providers, and the security-scoped bookmark's refresh rule (a stale
-refresh must not downgrade a scoped grant to a plain one). Tests touch no live
-credentials and make no network calls; most classes now use a UUID in their
-`UserDefaults` suite name, but the suite is still not safe under
-`swift test --parallel`, which runs each class in its own process against shared
-suite files.
+refresh must not downgrade a scoped grant to a plain one). The interaction layer
+is tested for real via ViewInspector (a test-only dependency): Settings' toggles,
+buttons, and `onChange` handlers are driven against the live view hosted in a
+windowless controller, and the status item controller is exercised against a
+real `NSStatusItem` — subscriptions redrawing the actual button, hover
+scheduling proven never to show a popover, and the context menu wired to a real
+poll. Tests touch no live credentials and make no network calls; every class
+uses a UUID in its `UserDefaults` suite name, but the suite is still not safe
+under `swift test --parallel` — the keychain test service and the standard
+defaults behind `@AppStorage` are shared across worker processes.
 
 `scripts/test.sh` runs the suite twice, because the App Store configuration
 compiles with `-DTOKES_APP_STORE` and that removes whole functions — the default

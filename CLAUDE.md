@@ -98,6 +98,13 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
 - **Sandbox containers can't be deleted from the shell.** Test bundles leave
   `~/Library/Containers/<id>` behind; `containermanagerd` protects the metadata
   plist even from `rm -rf` as the owner. Delete from Finder, or leave it.
+- **`scripts/e2e-smoke.sh` is the end-to-end smoke**: real status item, real
+  CGEvent clicks, popover verified by AX hit-testing *under* the item. It
+  steals focus and moves the mouse — run it deliberately before a release,
+  never from `swift test` or CI. Its header records the macOS 26 traps it
+  works around (AXPress is a no-op on the item; a second running Tokes makes
+  AX-reported item positions lie; the open popover is invisible to
+  `windows of proc`). Needs Accessibility permission for the terminal.
 - **Seeing a UI change actually render** (status item or Settings, including while the usage
   API is 429ing and the real app has nothing to draw): use the `visual-verify` skill in
   `.claude/skills/`.
@@ -136,11 +143,22 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   A test that sets it proves caching and nothing about *source dispatch*; for
   that, leave it nil and inject `defaults` / `manualService` / `importedFile`
   (see `ClaudeCredentialDispatchTests`).
-- **The suite is not safe under `swift test --parallel`.** Classes run in
-  separate processes but share `UserDefaults` suite files on disk, so a fixed
-  suite name collides across workers — `ImportedCredentialFileTests` and
-  `CredentialSourceDefaultsTests` still use fixed names and fail there. Use a
-  UUID in the suite name, as `AppDelegateTests` does.
+- **The suite is not safe under `swift test --parallel`.** Every class now uses
+  a UUID `UserDefaults` suite name (fixed names collide — classes run in
+  separate processes but share suite files on disk), yet a probe run still
+  fails: the keychain test service `"com.appideas.tokes.tests"` is
+  machine-global, and the view tests share the runner's *standard* defaults
+  (`@AppStorage` reads them) through `cfprefsd`. Serial only.
+- **ViewInspector is test-only.** `Sources/` must never import it; the
+  `Inspection` hook in `SettingsView` exists so hosted tests can visit the
+  live view, and the app never signals it. The library's own `ViewHosting`
+  calls `makeKeyAndOrderFront` — never use it; host in a windowless
+  `NSHostingController` instead (see `SettingsInteractionTests`).
+- **`StatusItemControllerLiveTests` creates a real `NSStatusItem`** (a brief
+  menu-bar flicker; no focus is taken) and removes it in `tearDown`; it skips
+  itself where no window server hands out a button. The popover, app
+  activation, `openSettings`, and the click monitors stay untested by design —
+  each would raise a window or steal focus from a parallel session.
 - **`Retry-After` is clamped to 30…900 s** (`UsagePoller.backoffDelay`). Both
   ends are reachable from a server answer alone: `0` or a past HTTP-date left no
   backoff at all and put Tokes straight back on a 429ing endpoint, and `1e9`

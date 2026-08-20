@@ -78,7 +78,7 @@ final class ManualTokenKeychainTests: XCTestCase {
 /// these drive it for real, against an injected defaults domain, an injected
 /// keychain slot, and a temp-directory imported file.
 final class ClaudeCredentialDispatchTests: XCTestCase {
-    private let suite = "com.appideas.tokes.tests.claudedispatch"
+    private let suite = "com.appideas.tokes.tests.claudedispatch.\(UUID().uuidString)"
     private let service = "com.appideas.tokes.tests"
     private let account = "oauth-token-dispatch"
     private var defaults: UserDefaults!

@@ -121,7 +121,7 @@ final class CredentialSourceAvailabilityTests: XCTestCase {
 /// Reading the stored selection out of UserDefaults.
 final class CredentialSourceDefaultsTests: XCTestCase {
     private var defaults: UserDefaults!
-    private let suite = "com.appideas.tokes.tests.credentialsource"
+    private let suite = "com.appideas.tokes.tests.credentialsource.\(UUID().uuidString)"
 
     override func setUp() {
         super.setUp()

@@ -7,9 +7,11 @@ first release gets compared against, and the first coverage report this repo has
 had — so there is no prior report to disposition, and nothing below is a
 re-litigation of an earlier finding.
 
-> **Read §10 first.** §1–§8 are the audit as measured, and are left as
-> written; §9 disposes of ranked items 1–6, and **§10 closes the rest in three
-> phases and re-measures**. Two audit claims were wrong and are corrected
+> **Read §11 first, then §10.** §1–§8 are the audit as measured, and are left
+> as written; §9 disposes of ranked items 1–6, **§10 closes the rest in three
+> phases**, and **§11 tests the interaction layer itself** (ViewInspector,
+> live hosted Settings, a real status item) and accounts for every remaining
+> uncovered region by name. Two audit claims were wrong and are corrected
 > there: §4.12's doubled-poll prediction (§10.1) and §6's reading of
 > `testPopoverViewRendersErrorBanner` (§10.3).
 >
@@ -1029,3 +1031,148 @@ Still genuinely open, unchanged from §9.4 and deliberately so:
   bookmark resolution failure passes `describing` ("Claude Code credentials"),
   a revoked grant passes the file path. Both render into "Could not read the
   imported file (%@)". Cosmetic, and a copy decision rather than a test gap.
+
+## 11. The interaction layer, tested for real
+
+§10.5 ended with an honest ceiling: the logic behind every Settings button was
+covered, but the buttons themselves — the closures, the `.onChange` handlers,
+the live `@State` flows — could not be pressed, because `NSHostingController`
+fires `.onAppear` and nothing else. This section removes that ceiling instead
+of re-labeling it.
+
+### 11.1 What changed
+
+**ViewInspector 0.10.3** (test-only dependency; the app target never imports
+it, and the shipping binary was re-audited to confirm zero symbols leak).
+Three mechanics, chosen deliberately:
+
+- **Unhosted inspection** for anything backed by `@AppStorage` or injected
+  closures: toggles write straight through their bindings to defaults, and
+  `callOnChange` fires the real handler closures.
+- **Hosted live inspection** for `@State` flows. The library's own
+  `ViewHosting` was *rejected* — it calls `makeKeyAndOrderFront`, and this
+  machine runs parallel sessions. Instead `SettingsView` gained a dormant
+  `Inspection` notice hook (one Combine subscription, never signaled by the
+  app) and tests host the view in a windowless `NSHostingController`. Every
+  visit hands the test the *live* view: fields populated by `onAppear`, a
+  Save button that enables when the field is non-empty, async Test Connection
+  verdicts arriving from a `MockURLProtocol` fetch.
+- **One new seam**: the Launch at login toggle now goes through
+  `setLaunchAtLogin` / `launchAtLoginStatus`, so a test flipping it cannot
+  register the test runner as a real login item. The `SMAppService` calls
+  live in the seam's default and are the only part left unexecuted.
+
+**`SettingsInteractionTests` (19 tests)**: both save-token flows end-to-end
+into the keychain test service, forget for both providers, all four
+form-level `onChange` handlers, launch-at-login through the seam including
+the failure re-read, popover toolbar buttons, menu-bar-label normalization
+from real toggle taps, unknown stored source values falling back to manual
+without network traffic, onAppear normalization rewriting bogus stored
+values, and four async Test Connection verdicts (Claude and Copilot, success
+and failure) polled from the live view. Six mutants, each run isolated, all
+killed — including `save-token-does-nothing` and `test-connection-unwired`.
+
+**`StatusItemControllerLiveTests` (12 tests)** against a *real*
+`NSStatusItem` (skipped automatically where no window server hands one out):
+init wiring (target, action, tracking area), the `@objc(mouseEntered:)`
+selector-export regression pinned at class level, both Combine subscriptions
+redrawing the actual button (snapshot → tooltip and title; error → orange;
+defaults change → scoped bucket leaves the tooltip and the icon loses its
+third track), hover-in/hover-out sampled continuously to prove no popover
+ever appears, and the context menu's wiring — including
+`performActionForItem` driving a real poll through the mock client. Three
+extractions made the rest assertable as pure functions: `popoverFrame` (the
+macOS 26 mispositioning workaround, with both edge clamps), `isOutsideClick`
+(the pinned-popover close rule, including the nil-window global-monitor
+case), and `contextMenu()` (built apart from the `performClick` that pops
+it). Seven mutants, all killed — the last one only after the no-popover
+assertion was changed from a single end-check to continuous sampling,
+because a popover that flashed open and was closed again by the hide pass
+slipped past the end-check. That test can detect a shown popover; the mutant
+run proved it by showing one.
+
+### 11.2 Re-measurement
+
+|  | audit (§1) | §9 | §10 | **§11** |
+|---|---|---|---|---|
+| Tests, direct | 179 | 237 | 284 | **315** (2 skipped) |
+| Tests, App Store | 176 | 234 | 281 | **312** |
+| Regions, direct | 60.60% | — | 74.26% | **82.71%** |
+| Regions, App Store | 66.14% | — | 77.53% | **85.87%** |
+| Regions, union | 64.65% | 71.57% | 75.00% | **83.02%** |
+| Union excl. StatusItemController, SettingsView, main.swift | — | — | 88.82%¹ | **89.58%** |
+
+¹ §10's exclusion row did not exclude `main.swift`; the §11 figure does, which
+is why the two exclusion rows are not directly comparable. The comparable
+statement: the two AppKit surfaces went from 45/129 and 131/180 regions to
+**76/132 and 145/180**, while everything else rose too.
+
+App Store audit after the changes: **31 passed, 0 failed**, and
+`verify-appstore.sh`'s bundle shows no ViewInspector linkage.
+
+### 11.3 The residual, named — all 163 union-uncovered regions
+
+Every uncovered region in the union now falls in one of five categories, each
+checked line-by-line:
+
+1. **Needs a popover on screen, app activation, or real OS events (56,
+   all in `StatusItemController`).** `showPopover`/`closePopover`'s shown-arm,
+   `statusButtonClicked` (calls `NSApp.activate`), `popoverHoverChanged`'s
+   activation dance, `openSettings` (orders a window front), the click
+   monitors (need real out-of-process mouse events), `showContextMenu`'s
+   `performClick`, and `repositionPopoverWindow`'s caller (needs the shown
+   popover whose geometry static is now tested instead). Testing these means
+   stealing focus from a parallel session; the decision logic they wrap is
+   covered as pure functions.
+2. **Forbidden by policy: reads another app's credential store or mutates
+   real login items (43).** `loadClaudeCodeToken`, the `security` CLI
+   fallback, the editor/`gh` CLI Copilot readers (direct flavor only — the
+   App Store flavor compiles them out, which is why its own number is
+   higher), the two Settings arms that call them, and the `SMAppService`
+   register/unregister bodies behind the new seam.
+3. **Modal and process lifecycle (22).** `runImportPanel` (blocks on
+   `NSOpenPanel.runModal`), the Choose File… closure that wraps it (its
+   post-modal half is the extracted, tested `importOutcome`), `main.swift`,
+   and `AppDelegate`'s launch/terminate hooks.
+4. **Default-value expressions only the real app evaluates (~26).**
+   Property-wrapper initializers and default arguments — `= .standard`,
+   `= .shared`, `CredentialsProvider.manualService` — that tests *must not*
+   evaluate, because injecting their replacements is exactly what keeps tests
+   off the real keychain slot and real defaults. `Models.swift`'s three
+   `current(in:)` functions show the pattern: every visible arm is tested,
+   and the zero-count region is the `= .standard` thunk.
+5. **Defensive-unreachable (~16).** UTF-8 guards on Swift strings, non-HTTP
+   response guards behind `MockURLProtocol`, `NumberFormatter` nil fallbacks,
+   `UsagePoller`'s two §10 survivors, and `Distribution`'s cross-flavor
+   mismatch arms — those run only in a mis-built artifact, and
+   `verify-appstore.sh` exercises the real bundle instead.
+
+### 11.4 Still open, and why
+
+- **`swift test --parallel`** — the §10.5 half (fixed suite names) is now
+  fully done: `CredentialSourceDefaultsTests` and both credential-dispatch
+  classes use UUID names. A `--parallel` probe run then surfaced the *other*
+  two blockers, previously masked: the keychain test service
+  (`com.appideas.tokes.tests`) is machine-global, so classes in separate
+  processes race on it, and the `@AppStorage`-backed view tests share the
+  test runner's standard defaults through `cfprefsd`. Serial remains the
+  documented and enforced mode; nothing in `test.sh` or CI passes
+  `--parallel`.
+- **Swift 6 language mode** — unchanged, deferred until after submission.
+- **`ImportedFileError.unreadable`'s two arms** — unchanged, a copy decision.
+- **True end-to-end** — built after all, as `scripts/e2e-smoke.sh`: an
+  on-demand script (never `swift test`, never CI — it steals focus and moves
+  the mouse) that launches the built app, finds its status item by
+  accessibility *hit-testing for the pid*, clicks it with real CGEvents,
+  reads the popover's texts from the AX subtree under the item, and clicks
+  again to close. Its first run passed against a live 429, rendering the
+  rate-limit banner beside a working Copilot section. Three macOS 26 facts
+  it embeds, each found the hard way: AppleScript's `click` (AXPress) on the
+  status item is a silent no-op; with the installed Tokes also running, both
+  instances share the bundle's preferred-position slot so the AX-reported
+  position can be the *other* instance's pixels; and the open popover is
+  invisible to `windows of proc` and `CGWindowList` — only the system-wide
+  hit-test below the item finds it. Diagnosing this added three permanent
+  `DebugLog` lines (hover, click, show) to `StatusItemController` after
+  §11.2's measurement; they land in §11.3's categories 1 and 5 and move the
+  totals by noise.

@@ -91,7 +91,7 @@ final class CopilotEditorTokenLookupTests: XCTestCase {
 /// `ClaudeCredentialDispatchTests` for why the `loadTokenOverride` suites do
 /// not reach it.
 final class CopilotCredentialDispatchTests: XCTestCase {
-    private let suite = "com.appideas.tokes.tests.copilotdispatch"
+    private let suite = "com.appideas.tokes.tests.copilotdispatch.\(UUID().uuidString)"
     private let service = "com.appideas.tokes.tests"
     private let account = "copilot-token-dispatch"
     private var defaults: UserDefaults!

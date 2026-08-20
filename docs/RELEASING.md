@@ -35,6 +35,13 @@ scripts/release.sh --sign "Developer ID Application: ..." --notarize <profile>
 Prints the zip path and sha256. Once builds are signed + notarized, remove the
 `caveats` block from the cask.
 
+Before tagging, run the end-to-end smoke once, deliberately (it steals focus
+while it runs):
+
+```sh
+scripts/e2e-smoke.sh                    # real status item -> popover -> close
+```
+
 ## Version numbering
 
 Linux-kernel convention, applied at **both** the minor and patch level:

@@ -32,7 +32,9 @@ enum DebugLog {
 final class StatusItemController: NSObject {
     private let state: AppState
     private let poller: UsagePoller
-    private let statusItem: NSStatusItem
+    /// Internal (not private) so tests can reach the real button and remove
+    /// the item from the bar when they finish.
+    let statusItem: NSStatusItem
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
@@ -231,6 +233,7 @@ final class StatusItemController: NSObject {
     // the tracking area's messages would be dropped silently.
     /// Pointer entered the status item: open the popover after a short delay.
     @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        DebugLog.log("Tokes: pointer entered status item")
         hoverInButton = true
         hideWork?.cancel()
         guard !popover.isShown else { return }
@@ -280,6 +283,7 @@ final class StatusItemController: NSObject {
     /// Shows the popover under the status item, refreshing stale data first.
     private func showPopover() {
         guard let button = statusItem.button, !popover.isShown else { return }
+        DebugLog.log("Tokes: showing popover")
         poller.refreshIfStale()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         repositionPopoverWindow()
@@ -295,16 +299,27 @@ final class StatusItemController: NSObject {
         guard let window = popover.contentViewController?.view.window,
               let buttonWindow = statusItem.button?.window,
               let screen = buttonWindow.screen ?? NSScreen.main else { return }
-        let buttonFrame = buttonWindow.frame
-        var frame = window.frame
-        let visible = screen.visibleFrame
-        frame.origin.y = buttonFrame.minY - frame.height
-        frame.origin.x = min(
-            max(buttonFrame.midX - frame.width / 2, visible.minX + 8),
-            screen.frame.maxX - frame.width - 8)
+        let frame = Self.popoverFrame(current: window.frame,
+                                      buttonWindowFrame: buttonWindow.frame,
+                                      screenFrame: screen.frame,
+                                      visibleFrame: screen.visibleFrame)
         if window.frame != frame {
             window.setFrame(frame, display: true)
         }
+    }
+
+    /// Where the popover window belongs: centered under the status item, top
+    /// flush with the bottom of the menu bar, clamped to the screen with an
+    /// 8pt margin on either side. Pure geometry, so the macOS 26 workaround
+    /// above is assertable without putting a popover on screen.
+    static func popoverFrame(current: NSRect, buttonWindowFrame: NSRect,
+                             screenFrame: NSRect, visibleFrame: NSRect) -> NSRect {
+        var frame = current
+        frame.origin.y = buttonWindowFrame.minY - frame.height
+        frame.origin.x = min(
+            max(buttonWindowFrame.midX - frame.width / 2, visibleFrame.minX + 8),
+            screenFrame.maxX - frame.width - 8)
+        return frame
     }
 
     /// Closes the popover, removes click monitors, and hands focus back.
@@ -325,6 +340,7 @@ final class StatusItemController: NSObject {
 
     /// Left click pins/unpins the popover; right click shows the context menu.
     @objc private func statusButtonClicked() {
+        DebugLog.log("Tokes: status item clicked (event: \(NSApp.currentEvent?.type.rawValue.description ?? "none"))")
         // currentEvent is nil for accessibility (AXPress) activation;
         // treat that like a left click.
         if NSApp.currentEvent?.type == .rightMouseUp {
@@ -360,7 +376,9 @@ final class StatusItemController: NSObject {
             guard let self else { return event }
             let popoverWindow = self.popover.contentViewController?.view.window
             let statusWindow = self.statusItem.button?.window
-            if event.window != popoverWindow && event.window != statusWindow {
+            if Self.isOutsideClick(eventWindow: event.window,
+                                   popoverWindow: popoverWindow,
+                                   statusWindow: statusWindow) {
                 self.closePopover()
             }
             return event
@@ -374,10 +392,20 @@ final class StatusItemController: NSObject {
         clickMonitors.removeAll()
     }
 
+    /// Whether a monitored click landed outside both the popover and the
+    /// status item — the condition that closes a pinned popover. A nil event
+    /// window (a click in another app, which is all the global monitor ever
+    /// delivers) is outside by definition.
+    static func isOutsideClick(eventWindow: NSWindow?, popoverWindow: NSWindow?,
+                               statusWindow: NSWindow?) -> Bool {
+        eventWindow != popoverWindow && eventWindow != statusWindow
+    }
+
     // MARK: - Context menu
 
-    /// Shows the right-click menu (Refresh / Settings / Quit) via a transient statusItem.menu.
-    private func showContextMenu() {
+    /// The right-click menu: Refresh / Settings / Quit. Built apart from
+    /// `showContextMenu` so its wiring is assertable without popping a menu.
+    func contextMenu() -> NSMenu {
         let menu = NSMenu()
         let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refreshAction), keyEquivalent: "")
         refresh.target = self
@@ -387,8 +415,12 @@ final class StatusItemController: NSObject {
         menu.addItem(settings)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Tokes", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        return menu
+    }
 
-        statusItem.menu = menu
+    /// Shows the right-click menu via a transient statusItem.menu.
+    private func showContextMenu() {
+        statusItem.menu = contextMenu()
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
     }

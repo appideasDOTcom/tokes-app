@@ -21,6 +21,20 @@ struct SettingsView: View {
     var bookmarkDefaults: UserDefaults = .standard
     /// Session the Test Connection buttons use; injectable for tests.
     var testSession: URLSession = .shared
+    /// What the Launch at login toggle does, and how its current truth is read
+    /// back after a failure. Injectable so a test flipping the toggle cannot
+    /// register the test runner as a real login item.
+    var setLaunchAtLogin: (Bool) throws -> Void = { enable in
+        if enable {
+            try SMAppService.mainApp.register()
+        } else {
+            try SMAppService.mainApp.unregister()
+        }
+    }
+    var launchAtLoginStatus: () -> Bool = { SMAppService.mainApp.status == .enabled }
+
+    /// ViewInspector's live-view hook; dormant outside tests (see Inspection).
+    let inspection = Inspection<Self>()
 
     @AppStorage(SettingsKeys.refreshInterval) private var refreshInterval: Double = 60
     @AppStorage(SettingsKeys.menuBarLabel) private var menuBarLabel = MenuBarLabel.off.rawValue
@@ -129,13 +143,9 @@ struct SettingsView: View {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enable in
                         do {
-                            if enable {
-                                try SMAppService.mainApp.register()
-                            } else {
-                                try SMAppService.mainApp.unregister()
-                            }
+                            try setLaunchAtLogin(enable)
                         } catch {
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                            launchAtLogin = launchAtLoginStatus()
                         }
                     }
             }
@@ -173,6 +183,7 @@ struct SettingsView: View {
             copilotTestResult = nil
             onCredentialsChanged()
         }
+        .onReceive(inspection.notice) { self.inspection.visit(self, $0) }
     }
 
     // MARK: - Per-source controls
