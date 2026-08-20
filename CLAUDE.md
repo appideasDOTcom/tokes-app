@@ -125,6 +125,9 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
 - Never run git commit/push/tag — the user handles all of git.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
+- **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App
+  Store work, and before assuming a contract is current. `build.app_icon` is
+  known stale there.
 - **Mac App Store releases take no arguments and no secrets.** API credentials
   live in `packaging/appstore/asc-credentials.env` (git-ignored; the `.example`
   documents it) and signing identities are discovered from the login keychain,

@@ -35,6 +35,27 @@ scripts/release.sh --sign "Developer ID Application: ..." --notarize <profile>
 Prints the zip path and sha256. Once builds are signed + notarized, remove the
 `caveats` block from the cask.
 
+## Version numbering
+
+Linux-kernel convention, applied at **both** the minor and patch level:
+
+| Component | Even | Odd |
+|---|---|---|
+| Minor (`1.x.0`) | release line | development line |
+| Patch (`1.4.x`) | RC / expected to go to production | testing only, never shipped |
+
+So 1.4.0 and 1.4.2 are release candidates within the 1.4 line; 1.4.1 and 1.4.3
+are test builds. Work toward the *next* release line happens at 1.5.x and lands
+as 1.6.0. Never publish an odd number in either position.
+
+`CFBundleVersion` is separate and **monotonic across the whole app** — it is
+never reset when the marketing version changes. App Store Connect rejects a
+duplicate, and `scripts/appstore.sh --upload` checks for one before it builds.
+
+`scripts/appstore.sh --sync-version` pushes `CFBundleShortVersionString` from
+`scripts/Info.plist` to the App Store Connect version record. They must agree or
+the build never appears in the version's build picker, with no error saying why.
+
 ## Architecture
 
 Both flavors build universal (`arm64` + `x86_64`). Apple is retiring Intel *app*

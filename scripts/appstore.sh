@@ -42,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --validate) ACTION=validate; shift ;;
         --upload) ACTION=upload; shift ;;
         --build-status) ACTION=status; shift ;;
+        --sync-version) ACTION=syncversion; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -82,6 +83,47 @@ for b in data:
     print("  build %-8s %-24s uploaded %s  expired=%s"
           % (a.get("version"), a.get("processingState"),
              (a.get("uploadedDate") or "")[:19], a.get("expired")))
+'
+    exit 0
+fi
+
+# ------------------------------------------------------- version sync ------
+# App Store Connect matches a build to a version record by
+# CFBundleShortVersionString. When the two disagree the build simply never
+# appears in the version's build picker, with no error explaining why. The repo
+# is the source of truth; this pushes it.
+if [[ "$ACTION" == syncversion ]]; then
+    need_api
+    BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' scripts/Info.plist)
+    WANT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' scripts/Info.plist)
+    APP_RESOURCE=$(asc "apps?filter[bundleId]=$BUNDLE_ID" \
+        | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print(d[0]["id"] if d else "")')
+    [[ -n "$APP_RESOURCE" ]] || die "no App Store Connect record for $BUNDLE_ID"
+    read -r VER_ID VER_STRING VER_STATE < <(asc "apps/$APP_RESOURCE/appStoreVersions?limit=1" \
+        | /usr/bin/python3 -c '
+import json, sys
+d = json.load(sys.stdin)["data"]
+if d:
+    a = d[0]["attributes"]
+    print(d[0]["id"], a.get("versionString"), a.get("appStoreState"))
+')
+    [[ -n "${VER_ID:-}" ]] || die "no editable version record found"
+    if [[ "$VER_STRING" == "$WANT" ]]; then
+        echo "App Store Connect version is already $WANT ($VER_STATE) — nothing to do."
+        exit 0
+    fi
+    echo "App Store Connect version $VER_STRING -> $WANT  (state $VER_STATE)"
+    curl -sg -X PATCH -H "Authorization: Bearer $(jwt)" -H "Content-Type: application/json" \
+        -d "{\"data\":{\"type\":\"appStoreVersions\",\"id\":\"$VER_ID\",\"attributes\":{\"versionString\":\"$WANT\"}}}" \
+        "https://api.appstoreconnect.apple.com/v1/appStoreVersions/$VER_ID" \
+        | /usr/bin/python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+if "errors" in d:
+    for e in d["errors"]:
+        print("  ERROR: %s - %s" % (e.get("title"), e.get("detail")))
+    sys.exit(1)
+print("  now %s" % d["data"]["attributes"]["versionString"])
 '
     exit 0
 fi
