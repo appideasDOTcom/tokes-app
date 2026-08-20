@@ -170,6 +170,13 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   field, so a provider outage means every popover opening retries; that is
   intended.
 - Never run git commit/push/tag — the user handles all of git.
+- **Coverage measurement is scripted**: run `swift test --enable-code-coverage`
+  in both configurations, then `scripts/coverage-regions.py` (whole-binary
+  export, max count across records, union per region). Its docstring records
+  the traps; the big one: region data contains provable false zeros (ternary
+  arms in call arguments, `vpfi` property-initializer records), so verify a
+  surprising zero with `llvm-cov show --show-regions` and the tests before
+  calling it untested — see §3.1 of `docs/coverage-report-2026-08-20.md`.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
 - **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App

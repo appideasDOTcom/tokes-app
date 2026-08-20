@@ -2,6 +2,10 @@
 
 Date: 2026-08-19 · measured at `a25b04b`; §9 records the work done in response
 
+> **Superseded for current state** by `coverage-report-2026-08-20.md`, a
+> standalone re-measurement. This file remains the submission baseline and
+> the work log of how the gaps were closed.
+
 **This is the Mac App Store submission baseline.** It is the measurement the
 first release gets compared against, and the first coverage report this repo has
 had — so there is no prior report to disposition, and nothing below is a
