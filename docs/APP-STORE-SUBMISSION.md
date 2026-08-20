@@ -16,7 +16,7 @@ Verified against App Store Connect on 2026-08-20:
 |---|---|
 | App record | `Dev Tokes`, app id `6803324238`, bundle `com.appideas.tokes` |
 | Version record | **1.4.2**, `PREPARE_FOR_SUBMISSION` (operator bumped it 2026-08-20) |
-| Uploaded build | **build 3** (`1.4.2`), uploaded 2026-08-20 — attach it once Apple finishes processing |
+| Uploaded build | **build 4** (`1.4.2`) — attach this one. Build 3 is also `1.4.2` but predates the unauthorized-message fix |
 | Listing text | pushed — description, subtitle, keywords present in `en-US` |
 | Privacy policy URL | set — `https://appideas.com/privacy-policy/`, pushed 2026-08-20 |
 | Screenshots | **6 uploaded**, `APP_DESKTOP`, all `COMPLETE`, order pinned |
@@ -32,18 +32,21 @@ bumped to `1.4.2` in place, so `build 2` (a `1.4.0` artifact) is attached to a
 record it does not match. App Store Connect did not detach it, but a build and
 its version record are expected to agree, and `--sync-version` exists precisely
 because a mismatch makes a build invisible to the picker with no error saying
-why. **Build 3 (`1.4.2`, `CFBundleVersion` 3) was built and uploaded 2026-08-20**
-— audit 32/0 static — and replaces it. Attach build 3, not build 2.
+why. **Attach build 4.** Two `1.4.2` artifacts exist: build 3, and build 4 which adds
+the flavor-gated unauthorized message (below). Both audit 32/0 static; build 3 is
+superseded and should be ignored.
 
-Next upload needs `CFBundleVersion` **4**; it is monotonic across the whole app
+Next upload needs `CFBundleVersion` **5**; it is monotonic across the whole app
 and never resets when the marketing version changes.
 
 ---
 
 ## Blocking the first submission
 
-**One item left: the review notes, which need a live token generated on the
-day.** Everything else is done.
+**Blocked on the connection gap, not on paperwork.** The App Store build has
+no path a normal user can follow to connect their account — see
+`docs/HANDOFF-credential-gap.md`. Everything else on this list is done, and the
+review notes cannot be finalised until that is fixed.
 
 *Closed 2026-08-20: the **privacy policy URL**, which is required to submit and
 had never been pushed. It was found by reading the live API rather than the
@@ -83,19 +86,38 @@ name.** Script fixed and both it and the new promotional text are now live.*
       anyone tempted to re-check it programmatically: **there is no API path** —
       `appDataUsages` and `appDataUsagesPublishState` both return `PATH_ERROR`
       against this app. Absence of an API check is not absence of the answer.
-- [ ] **Review notes** — text below. Needs a live OAuth token, valid on the day
-      of submission.
+- [ ] **Review notes** — text below, currently BLOCKED behind the connection
+      gap; see `docs/HANDOFF-credential-gap.md`.
 
 ## Review notes (short, but skipping it costs a rejection cycle)
+
+> **BLOCKED — do not use these yet.** They describe pasting a live OAuth token,
+> which is the only connection path the App Store build currently has, and it is
+> not one a normal user can follow: see `docs/HANDOFF-credential-gap.md`. The
+> notes are kept because the *mechanism* they describe is accurate; they become
+> usable once the app has a connection path worth documenting.
 
 Two things will get Tokes rejected if unstated, and both are cheap to prevent.
 
 1. **It is a menu bar app.** `LSUIElement` means no Dock icon and no window at
    launch. Reviewers routinely reject such apps as "the app does not launch" or
    "we were unable to locate any functionality". Say so in the first line.
-2. **It needs an account the reviewer doesn't have.** Paste a live OAuth token
-   and check it is still valid on submission day — expect a resubmission if a
-   review round-trip outlives it.
+2. **It needs an account the reviewer doesn't have, and the credential is
+   short-lived.** Measured 2026-08-20 against a live Claude `max` subscription:
+   the **access token had 1.5 h left and the refresh token 5.4 h**. So the
+   window is *hours*, and App Review takes days. A reviewer will very probably
+   meet an expired token however well the submission is timed.
+
+   Three consequences, none of which a better-timed paste fixes:
+
+   - **A credentials file is not a workaround.** The import path re-reads the
+     file every poll, which is why the Homebrew build keeps working — *Claude
+     Code* refreshes that file. A reviewer has no Claude Code, so a static file
+     we hand them expires exactly like a pasted token, and costs extra steps.
+   - **Tokes has no refresh path.** The stored JSON carries `refreshToken` and
+     `refreshTokenExpiresAt`, and nothing in `Sources/` reads either — verified.
+   - **So the review notes must name the failure mode**, which converts a likely
+     rejection into a message. The line is in the suggested text below.
 
 Suggested text:
 
@@ -115,6 +137,11 @@ Suggested text:
 >    default — or right-click the icon and choose **Refresh Now**.
 >
 > Test token: <paste>
+>
+> Note on the token: it is an OAuth access token and it expires within hours. If
+> Tokes shows "Not authorized — the token may have expired", the token has
+> lapsed rather than the app having failed. Please contact us and we will supply
+> a current one immediately.
 >
 > Tokes reads the signed-in user's own Anthropic account usage. It collects no
 > data, has no server, and transmits nothing to us.
@@ -201,6 +228,27 @@ Connect version record must agree or the build never appears in the version's
 build picker, with no error saying why.
 
 ---
+
+## The unauthorized message is flavor-gated — don't undo it
+
+`UsageError.unauthorized` says different things in the two builds, and the split
+is deliberate:
+
+| Build | Message |
+|---|---|
+| Direct / Homebrew | "Not authorized — open Claude Code to refresh your login, or set a token in Settings." |
+| **App Store** | "Not authorized — the token may have expired. Paste a current one in Settings." |
+
+The App Store build **cannot read Claude Code's credentials** — that path is
+compiled out — so telling its user to open Claude Code is advice they cannot act
+on, and it is the message a reviewer is *most likely* to see, because a pasted
+OAuth token expires in hours and this build has no refresh path. The original
+single string shipped in the App Store binary (confirmed with `strings`, two
+occurrences) until 2026-08-20.
+
+`SettingsInteractionTests` asserts the shipped string per flavor rather than
+matching loosely. If that test stops compiling under `-DTOKES_APP_STORE`, fix the
+test — do not widen the assertion.
 
 ## After the first approval
 

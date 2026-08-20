@@ -311,8 +311,16 @@ final class SettingsInteractionTests: XCTestCase {
         visit(sut) { view in
             try view.find(button: "Test Connection").tap()
         }
+        // The copy differs by flavor: the App Store build cannot read Claude
+        // Code, so it must not tell anyone to open it. Assert the shipped string
+        // for THIS build rather than relaxing the match.
+        #if TOKES_APP_STORE
+        XCTAssertTrue(awaitText(
+            sut, "Not authorized — the token may have expired. Paste a current one in Settings."))
+        #else
         XCTAssertTrue(awaitText(
             sut, "Not authorized — open Claude Code to refresh your login, or set a token in Settings."))
+        #endif
     }
 
     /// A stored source value this build has never heard of must act like

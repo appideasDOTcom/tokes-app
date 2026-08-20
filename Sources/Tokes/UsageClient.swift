@@ -10,7 +10,16 @@ enum UsageError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unauthorized:
+            // Flavor-gated deliberately. The App Store build cannot read Claude
+            // Code's credentials at all — that path is compiled out — so telling
+            // its user to "open Claude Code" is advice they cannot act on, and
+            // it is the message most likely to be seen: a pasted OAuth token
+            // expires in hours and this build has no refresh path.
+            #if TOKES_APP_STORE
+            return "Not authorized — the token may have expired. Paste a current one in Settings."
+            #else
             return "Not authorized — open Claude Code to refresh your login, or set a token in Settings."
+            #endif
         case .rateLimited:
             return "Usage API rate-limited — retrying automatically."
         case .http(let code):

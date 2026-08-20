@@ -4,11 +4,26 @@ Open items carried out of the App Store compliance work. Each says what it is,
 why it is not done, and what "done" looks like — so it can be picked up cold by
 a later session.
 
-**Status, verified against App Store Connect 2026-08-20:** repo is now
-**1.4.2 / `CFBundleVersion` 3**, version record **1.4.2 / PREPARE_FOR_SUBMISSION**.
-**Build 3 (`1.4.2`, `CFBundleVersion` 3) was built and uploaded 2026-08-20**,
-audit 32/0 static. Attach build 3 — not build 2, which is a `1.4.0` artifact.
-Next upload needs `CFBundleVersion` 4.
+**Status, verified 2026-08-20:** repo is **1.4.2 / `CFBundleVersion` 5**,
+version record **1.4.2 / PREPARE_FOR_SUBMISSION**.
+
+**Build 5 (`1.4.2`, `CFBundleVersion` 5) is the one to attach — uploaded
+2026-08-20, audit 32/0, delivery UUID `aa0fd2b9-df38-455e-a38f-4fcc6439cbc2`.**
+
+**Build 5 shipped a Demo mode that has since been removed from the source.** It
+was added to give App Review a credential-free path, then stripped on the
+operator's instruction: it addressed the reviewer's problem while leaving real
+users with no way to connect, which disguised the actual blocker. Treat build 5
+as a TestFlight-only artifact whose behaviour no longer matches the tree. Build 4
+carries the flavor-gated unauthorized message; build 3 lacks it; build 2 is a
+`1.4.0` artifact. Next upload needs `CFBundleVersion` 6.
+
+**Version numbering during the testing loop, decided 2026-08-20:** the marketing
+version stays **1.4.2** and only `CFBundleVersion` moves (5, 6, 7 …), so
+TestFlight shows `1.4.2 (5)` and each iteration costs one integer. **1.4.4 is
+the final release version.** A letter suffix such as `1.4.2b` was considered and
+is not possible: App Store Connect requires both version fields to be
+period-separated non-negative integers and rejects the upload outright.
 listing text pushed, **build 2 uploaded, `VALID`, and attached to the version
 record**. Build 1 (v1.2.0) is also `VALID` and permanently orphaned — leave it.
 Nothing submitted for review. The remaining blockers are all web-UI answers and
@@ -16,6 +31,56 @@ live in `APP-STORE-SUBMISSION.md` rather than being duplicated here. The privacy
 policy URL and the revised promotional text were pushed 2026-08-20.
 
 ---
+
+## ⛔ BLOCKER: the App Store build cannot be connected by a normal user
+
+**Read `docs/HANDOFF-credential-gap.md` before any further release work.**
+Found 2026-08-20 by installing build 5 from TestFlight as an ordinary user: the
+default credential source is a file that does not exist on a modern Claude Code
+install, and the only alternative needs a terminal command for a token that
+expires in ~1.5 h. **Do not submit 1.4.2.**
+
+
+## Open: does Anthropic accept a third-party CIMD `client_id`?
+
+**Untested — one unauthenticated GET decides it, and the payoff is large.**
+
+App Store users must currently re-paste an OAuth token every ~1.5 h, because
+Tokes has no refresh path. Refresh itself is viable — the token response carries
+`refresh_token_expires_in` and the refresh token rotates, so a chain renews
+indefinitely (see `docs/HANDOFF-credential-gap.md`). The blocker is *identity*: Anthropic
+publishes no `/.well-known/oauth-authorization-server` on `api.anthropic.com`,
+`claude.ai`, or `console.anthropic.com`, so there is no registration endpoint,
+and the only known client is Claude Code's own Client ID Metadata Document.
+
+Using **that** `client_id` would make the consent screen read "Claude Code" in
+an app named Dev Tokes — misrepresents the app to the user, collapses both
+grants into one revocable entry, and is revocable upstream. Not acceptable.
+
+**But `client_id` being a URL is the CIMD pattern, which exists precisely so
+third parties need no registration endpoint.** If the authorize endpoint
+resolves an arbitrary CIMD URL, APPideas hosts its own document, the consent
+screen reads "Dev Tokes", the chain is independent of Claude Code, and sign-in
+becomes permanent and mouse-clicks-only — the whole problem closed.
+
+The probe (nothing is authorized by loading it):
+
+```
+https://claude.ai/oauth/authorize?response_type=code
+  &client_id=https%3A%2F%2Fappideas.com%2Ftokes%2Foauth-client-metadata
+  &redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback
+  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+  &code_challenge_method=S256&scope=user%3Aprofile&state=probe
+```
+
+- `invalid_client` / unknown client → hardcoded allowlist; third-party CIMD is
+  out, and the re-paste burden stands until Anthropic offers registration.
+- an error about *fetching* the metadata document → generic CIMD support, and
+  the remaining work is hosting a JSON file plus an auth-code + PKCE flow.
+
+This is now the release blocker, not a follow-up — it is the same question as
+`docs/HANDOFF-credential-gap.md` and should be answered first.
+
 
 ## 1. `build.app_icon` → v3 — **DONE 2026-08-20**
 
