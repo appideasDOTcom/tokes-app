@@ -9,7 +9,10 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    # macos-26 (Xcode 26+) is required: the app icon is an Icon Composer
+    # package and only Xcode 26's actool can compile a .icon. On an older
+    # image actool fails and build.sh aborts, so releases would not ship.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 

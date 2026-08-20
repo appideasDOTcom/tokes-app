@@ -70,6 +70,10 @@ Requires Xcode (Swift 6 toolchain), targets macOS 14+.
 ./scripts/build.sh --run    # builds build/Tokes.app and (re)launches it
 ```
 
+The app icon is built from `packaging/icon/Tokes.icon` (an Icon Composer package)
+by `actool`, which derives both the macOS 26 layered rendition and the legacy
+`.icns` from that single source. See `packaging/icon/README.md`.
+
 To install permanently:
 
 ```sh
@@ -92,6 +96,8 @@ and Copilot config files plus the manual keychain item (a test-only service, nev
 real one), poller behavior (retry-on-401, 429 backoff, staleness gating, in-flight
 coalescing, dual-provider merging with stale carry-forward — via injected mocks), the
 menu bar icon (including rasterized pixel checks of severity colors and the provider
-divider), chart downsampling, settings defaults, and hosting-controller smoke tests of
-the SwiftUI views. Tests touch no live credentials and make no network calls.
+divider), chart downsampling, settings defaults, hosting-controller smoke tests of
+the SwiftUI views, and the app icon build pipeline (the Icon Composer package
+compiles under `actool` into both shipping forms, with the plist keys the bundle
+needs — all failure modes there are silent ones). Tests touch no live credentials and make no network calls.
 
