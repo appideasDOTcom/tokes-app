@@ -135,6 +135,20 @@ The live App Store Connect state and the release runbook are in
       product risk. It also rendered *better* — `split()` binds on height, so
       the shorter source made 02 and 04 about 12% larger.
 
+      **Consequence for any later capture request (task 56, 2026-08-21):** there
+      is no path on this machine that gives correct header chrome *and* more
+      than 1x. `ImageRenderer` always draws the plates — that is what the
+      `.borderless` trigger means — and the hosting path that draws the glyphs
+      correctly rasterises at the layer's backing scale, which is 1.0 on every
+      display here. The states harness therefore renders the popovers **both
+      ways**: `popover-*-{light,dark}.png` at 9x/6x with plates in the header,
+      and `popover-*-hosted-{light,dark}.png` at a true 1x with the header
+      correct (measured: 0 plate px, and the three glyphs verified by eye).
+      A consumer picks per placement — crop the header off the crisp pair, or
+      place the hosted pair. On Retina hardware the hosted pair becomes a real
+      2x for free; that is the same note `assets.store_frames` carries for
+      Settings.
+
 - [x] **Screenshot set re-uploaded — DONE 2026-08-20, operator-authorised.**
       Six frames from the designer's `handoff/`, replacing the set that carried
       the placeholder plates. Set `0ae1c8c7-eafa-4413-b848-a7c4ade9a796`.
