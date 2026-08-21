@@ -138,9 +138,25 @@ their respective owners and are used here only to describe what Tokes monitors.
 
 ## Screenshots
 
-**What actually ships are six frames authored by `appideas-designer`**, uploaded
-2026-08-20 and verified `COMPLETE`. Their path and the pull-don't-write rule are
-in `screenshots-source.txt`; upload with `scripts/appstore-screenshots.py`.
+**What actually ships are six frames authored by `appideas-designer`.** Their
+path and the pull-don't-write rule are in `screenshots-source.txt`.
+
+```sh
+scripts/appstore-screenshots.py --dry-run --replace   # check without sending
+scripts/appstore-screenshots.py --replace             # delete live set, upload, pin order
+scripts/appstore-screenshots.py --verify              # read back what Apple holds
+```
+
+**Always `--verify` after uploading.** It asserts set count, per-file delivery
+state, `sourceFileChecksum` equality against the local files, and display order.
+The uploader's own success output is not evidence, and `COMPLETE` means the
+asset *processed*, not that the pixels are right — two frames sat at `COMPLETE`
+for days carrying visible broken-image placeholders. `--verify` is read-only and
+always safe to run.
+
+**`--replace` deletes the live set before writing the new one**, so there is a
+window where the listing has no screenshots. That is an operator decision when a
+submission is imminent, not an agent's to take unasked.
 
 | | Caption |
 |---|---|

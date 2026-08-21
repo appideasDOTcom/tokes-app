@@ -2,6 +2,7 @@
 """Uploads the App Store screenshots to App Store Connect.
 
     scripts/appstore-screenshots.py [--dry-run] [--dir PATH] [--replace]
+    scripts/appstore-screenshots.py --verify        # read back what Apple holds
 
 The frames are authored by the design practice and live in their repo, not
 ours — `packaging/appstore/screenshots-source.txt` records the path. We pull
@@ -10,6 +11,12 @@ regenerates.
 
 Uploading is NOT submitting. Screenshots attach to the version record and sit
 there until a human presses Submit for Review.
+
+`--verify` reads the set back from Apple and asserts it against the local files:
+set count, per-file delivery state, `sourceFileChecksum` equality, and display
+order. Run it after every upload — the uploader's own success output is not
+evidence, and `COMPLETE` means the asset *processed*, not that the pixels are
+right. It is read-only, so it is always safe to run.
 
 Three things that are easy to get wrong here:
 
@@ -174,12 +181,70 @@ def check_image(path):
     return w, h
 
 
+def verify(src, files):
+    """Read the live set back and assert it matches `files`. Read-only."""
+    local = {f.name: hashlib.md5(f.read_bytes()).hexdigest() for f in files}
+    token = jwt(creds())
+    apps = api(token, "apps?filter[bundleId]=%s" % BUNDLE_ID)["data"]
+    if not apps:
+        die("no App Store Connect record for %s" % BUNDLE_ID)
+    version = api(token, "apps/%s/appStoreVersions?limit=1" % apps[0]["id"])["data"][0]
+    print("Version %s (%s)\nSource: %s\n"
+          % (version["attributes"]["versionString"],
+             version["attributes"]["appStoreState"], src))
+
+    locs = api(token, "appStoreVersions/%s/appStoreVersionLocalizations"
+               % version["id"])["data"]
+    loc = next((l for l in locs if l["attributes"]["locale"] == LOCALE), None)
+    if loc is None:
+        die("no %s localization on this version" % LOCALE)
+    sets = [s for s in api(token, "appStoreVersionLocalizations/%s/appScreenshotSets"
+                           % loc["id"])["data"]
+            if s["attributes"]["screenshotDisplayType"] == DISPLAY_TYPE]
+    if len(sets) != 1:
+        die("expected exactly one %s set, found %d" % (DISPLAY_TYPE, len(sets)))
+
+    shots = api(token, "appScreenshotSets/%s/appScreenshots" % sets[0]["id"])["data"]
+    expected = sorted(local)
+    problems = []
+    if len(shots) != len(expected):
+        problems.append("set holds %d screenshot(s), local has %d"
+                        % (len(shots), len(expected)))
+    for i, shot in enumerate(shots):
+        a = shot["attributes"]
+        name = a.get("fileName")
+        state = (a.get("assetDeliveryState") or {}).get("state")
+        checksum = a.get("sourceFileChecksum")
+        notes = []
+        if i < len(expected) and name != expected[i]:
+            notes.append("ORDER (expected %s)" % expected[i])
+        if state != "COMPLETE":
+            notes.append("STATE=%s" % state)
+        if name not in local:
+            notes.append("NOT IN SOURCE DIR")
+        elif checksum != local[name]:
+            notes.append("CHECKSUM MISMATCH")
+        problems.extend("%s: %s" % (name, n) for n in notes)
+        print("  %d. %-24s %-9s md5 %s  %s"
+              % (i + 1, name, state, (checksum or "")[:12],
+                 "ok" if not notes else " / ".join(notes)))
+
+    if problems:
+        print()
+        die("%d problem(s):\n  %s" % (len(problems), "\n  ".join(problems)))
+    print("\nAll %d match: correct order, matching checksums, COMPLETE."
+          % len(shots))
+    print("This asserts what Apple holds, not what the uploader reported.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", help="directory of frames (default: the recorded source)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--replace", action="store_true",
                     help="delete any existing screenshot set first")
+    ap.add_argument("--verify", action="store_true",
+                    help="read the live set back and assert it matches the local files")
     args = ap.parse_args()
 
     src = pathlib.Path(args.dir) if args.dir else None
@@ -196,6 +261,10 @@ def main():
     if len(files) > 10:
         die("%d files — App Store Connect accepts at most 10 per localization"
             % len(files))
+
+    if args.verify:
+        verify(src, files)
+        return
 
     print("Source: %s\n" % src)
     for f in files:

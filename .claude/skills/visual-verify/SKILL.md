@@ -111,6 +111,65 @@ Both branches are cheaper to assert textually — the strings come from
 func — than to photograph. Reach for a capture only when the question is
 genuinely about layout.
 
+## Which render path — and what each one silently breaks
+
+Two ways to capture SwiftUI off-screen. They are **not** interchangeable, and a
+view with both a grouped `Form` and symbol buttons cannot be captured correctly
+at high resolution by either. Pick knowing what you're buying:
+
+| | `ImageRenderer` | hosted view + `cacheDisplay` |
+|---|---|---|
+| Real resolution at the requested scale | **yes** | **no** — 1x rasterisation, upscaled |
+| Grouped `Form` (`SecureField`/`Toggle`/`Picker`) | **blank page** | renders |
+| `Image(systemName:)` in a `.buttonStyle(.borderless)` button | **yellow placeholder plate** | renders correctly |
+| Scrollable content | can't scroll it | can (see above) |
+
+**The placeholder trap shipped in two App Store screenshots** and survived four
+review passes, because it sat in the window chrome while everyone checked
+content. It is *not* "ImageRenderer can't do SF Symbols" — measured, all of
+these render fine: bare `Image(systemName:)`, `.imageScale`, `Label(systemImage:)`,
+`Image(nsImage:)`, and `.buttonStyle(.plain)`. **Only `.borderless` breaks.**
+
+`scripts/appstore-screenshots.py` now refuses any frame containing one. If you
+render popovers here, check for it the same way — saturated yellow, safe against
+brand orange and the severity colours:
+
+```python
+r > 200 and g > 170 and b < 90 and abs(r - g) < 70
+```
+
+**Controls always draw inactive.** An `.accessory` harness never activates, so
+`Toggle(isOn: true)` captures **grey, not accent blue**. Five approaches all
+measured at zero accent pixels — overriding `isKeyWindow`/`isMainWindow`,
+`.environment(\.controlActiveState, .key)` and `.active`, swizzling
+`-[NSApplication isActive]`, and `window.makeKey()`. Only `NSApp.activate(...)`
+works and that steals focus. Don't re-litigate this; supply the state at
+composition time if it's needed.
+
+`ImageRenderer` is main-actor isolated — wrap probe code in
+`MainActor.assumeIsolated { }` or it won't compile.
+
+## Measuring a render instead of eyeballing it
+
+Two techniques that answered questions a screenshot couldn't, both cheap:
+
+- **Is this render blank / does it contain X?** Count pixels differing from the
+  modal (background) colour, plus distinct colour count. A blank `ImageRenderer`
+  page reads 0.00% non-background and 1 colour; a working control render reads
+  ~3.6% and 300+ colours. Always look at the image too — a first detector here
+  counted a red severity dot as a placeholder plate.
+- **Where are the section boundaries?** Classify each pixel row as grouped-`Form`
+  card (light grey) vs page (white) by sampling a few x positions clear of text,
+  then print the runs as percentages of height. That located every Settings
+  section boundary to the point, which is what the designer needed to re-derive
+  a store-frame crop — and it agreed with their independent edge detection to
+  within 0.1%.
+
+No PIL or numpy on this machine. For stdlib-only pixel work, `sips -s format bmp`
+then parse the header and slice raw rows — no decompression, no PNG un-filtering.
+Sample a full-resolution grid rather than downscaling first, or a small feature
+gets averaged away into its surroundings.
+
 ## Asserting a Picker's options (better than a screenshot)
 
 A SwiftUI `Picker` in a `Form` is backed by an `NSPopUpButton`, but **its
