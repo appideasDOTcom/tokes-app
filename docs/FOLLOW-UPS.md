@@ -87,12 +87,86 @@ The live App Store Connect state and the release runbook are in
             `.icns` and `Assets.car` in a real install rather than under
             `ictool`.
 
-- [ ] **One store asset needs re-cutting.** The connect screenshot depicts the
-      pre-build-6 Settings; the credential UI has changed materially (GitHub
-      sign-in phases, the Claude export walkthrough). Operator is handling this
-      in a separate phase with `appideas-designer`. Re-rendering any frame means
-      rebuilding the whole set — all six share one fixture, and figures that
-      differ between screenshots read as mocked up.
+- [ ] **One store asset needs re-cutting — frame 05, "Your credential stays
+      yours".** `appideas-designer` is leading it (channel msgs 679/680, answered
+      in 681/683). State material re-rendered 2026-08-20 into
+      `build/appstore/states/`. What was measured for them, so it isn't
+      re-derived:
+
+      - **What moved:** exactly one thing — the Copilot `Credentials` radio list
+        gained `Sign in with GitHub (recommended)` at the top, so everything
+        below shifted one row (~23 pt @1x). Nothing was removed; `Test
+        Connection` and both other Copilot sources are still there.
+      - **Their 91% crop is now wrong.** The Copilot card runs 50.5–93.6% of
+        the render height (313–580 pt); 91% cuts *into* it, 2.6 points above
+        its bottom edge.
+      - **The fixture is untouched** — Settings renders no usage value, so the
+        other five frames don't rebuild on that account.
+      - **`ImageRenderer` is still blank for `SettingsView`** — measured, not
+        assumed: 0.00% non-background / 1 colour, against a `PopoverView`
+        control at 3.59% / 307 colours. The Form gained a fifth `Picker` and
+        its first `TextField`, so it moved further from plain SwiftUI. Frame 05
+        stays a `cacheDisplay` upscale.
+      - **The caption clause that breaks is "No account"**, not "Nothing is read
+        automatically" — a *Sign in with GitHub* control is visible inside the
+        crop. Reword is the designer's call.
+
+      Our uploader has **no single-slot replace**:
+      `scripts/appstore-screenshots.py --replace` deletes the whole set,
+      re-uploads every PNG in sorted order, and re-pins display order. So the
+      full set ships together regardless.
+
+- [x] **Popover placeholder plates — RESOLVED 2026-08-20 by cropping, not by a
+      code change.** `appideas-designer` found three yellow SwiftUI
+      unresolvable-image placeholders in the popover header of uploaded frames
+      02 and 04. **The app was never affected**: `ImageRenderer` draws
+      `Image(systemName:)` inside a `.buttonStyle(.borderless)` button as a
+      placeholder, while the `NSHostingController` path an `NSPopover` actually
+      uses renders the glyphs correctly (measured: 3036 plate px vs 0 above the
+      chart region). Root cause is `.borderless`, **not** SF Symbols — bare
+      `Image(systemName:)`, `.imageScale`, `Label`, `Image(nsImage:)` and
+      `.buttonStyle(.plain)` all render fine through `ImageRenderer`.
+
+      **Operator ruled: crop the header, leave the app alone. `.borderless`
+      stays — do not make the `.plain` change.** The defect was in the
+      screenshot tool, not the product, and no user traverses `ImageRenderer`;
+      the pixel-identity proof offered for `.plain` covered the static render
+      only, with press/hover untested. Cropping cost nothing and carried no
+      product risk. It also rendered *better* — `split()` binds on height, so
+      the shorter source made 02 and 04 about 12% larger.
+
+- [x] **Screenshot set re-uploaded — DONE 2026-08-20, operator-authorised.**
+      Six frames from the designer's `handoff/`, replacing the set that carried
+      the placeholder plates. Set `0ae1c8c7-eafa-4413-b848-a7c4ade9a796`.
+      Verified by reading the API back, not from the uploader's success output:
+      exactly one `APP_DESKTOP` set, six screenshots, all `COMPLETE`, all six
+      `sourceFileChecksum` values matching the local files, display order
+      pinned and correct. Nothing submitted for review.
+
+- [x] **Accent-blue toggle in Settings renders: NOT POSSIBLE without stealing
+      focus — closed 2026-08-20, don't retry.** The Settings captures show the
+      Copilot toggle grey-with-knob-right rather than accent blue, because
+      AppKit draws controls inactive while the app is inactive and the capture
+      harness is an `.accessory` app that deliberately never activates. Five
+      approaches measured, all 0 accent pixels: overriding `isKeyWindow` /
+      `isMainWindow`; `.environment(\.controlActiveState, .key)`; the same with
+      `.active`; swizzling `-[NSApplication isActive]` to true; and
+      `window.makeKey()`. The toggle renders correctly in every case — right
+      shape, knob right, correct label — just grey, so these are real negatives
+      and not a broken detector. Only `NSApp.activate(...)` would flip it, and
+      that takes focus from whatever the operator is doing.
+      **If blue is wanted it is a composition-time recolour**, which is *more*
+      faithful rather than less: a user with Settings focused genuinely sees
+      blue, and grey is an artifact of capturing with no active app.
+
+- [ ] **Decide whether the review notes and the store frames should agree about
+      Copilot.** The notes tell the reviewer Copilot is off by default and they
+      need not enable it; frames 01, 04 and 05 all depict it running. That is
+      defensible — the frames show a configured app, exactly as with the menu
+      bar percentage — but it should be a deliberate choice. Operator's call.
+      Note the mechanism: the *entire* Copilot credential UI is inside
+      `if copilotEnabled`, so with the toggle off the section collapses to a
+      single row and the credential-choice story disappears from the frame.
 
 ## Waiting on someone else
 
@@ -112,6 +186,18 @@ The live App Store Connect state and the release runbook are in
       `retired/credential-gap-2026-08-20.md`.
 
 ## Product observations (not defects, not scheduled)
+
+- [ ] **Copilot copy still says "premium requests" in two places that can now
+      contradict the row they describe.** GitHub replaced premium requests with
+      AI credits on 2026-06-01, and `GitHubBillingFetcher.limit` labels the row
+      **`Copilot Credits`** when the account is on the new meter — while the
+      Settings toggle reads `Also monitor Copilot premium requests` and
+      `MenuBarLabel.copilot.displayName` reads `Copilot Premium`. So a user on
+      AI credits sees both vocabularies at once. **Deliberately not changed
+      before submission**: the toggle string is asserted in the review notes and
+      depicted in the store frames, so changing it now invalidates both. The
+      series id `copilot_premium` must **not** change with it — it is what keeps
+      history continuous across a meter migration.
 
 - [ ] **The menu bar bars under-report every value by 15.6 percentage points.**
       Found 2026-08-20 while rendering store-frame material at 12×

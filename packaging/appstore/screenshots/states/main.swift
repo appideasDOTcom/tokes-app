@@ -441,7 +441,7 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             writePNG(render(view, scale: SETTINGS_SCALE), "settings-\(mode)-\(suffix).png")
 
             // Same window, scrolled down. With Copilot on, Behavior and the
-            // "Tokes 1.4.0 (App Store)" footer are below the fold.
+            // "Tokes <version> (App Store)" footer are below the fold.
             //
             // This one CANNOT use ImageRenderer — there is no way to scroll
             // SwiftUI content it renders — so it stays on the cacheDisplay path

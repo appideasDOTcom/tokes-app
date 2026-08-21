@@ -16,6 +16,13 @@ Three things that are easy to get wrong here:
   * **macOS screenshots may not carry an alpha channel.** App Store Connect
     rejects them, and the failure surfaces as an opaque asset error rather than
     "your PNG has alpha". Every file is checked before a single byte is sent.
+  * **A frame may not contain a SwiftUI unresolvable-image placeholder.** Two
+    uploaded frames once carried three yellow plates where the popover's
+    toolbar glyphs belong — `ImageRenderer` renders `Image(systemName:)` inside
+    a `.buttonStyle(.borderless)` button as a placeholder, though the hosting
+    path the real app uses is fine. It survived four review passes because it
+    sat in the one region nobody was checking. `COMPLETE` from the API means the
+    asset *processed*, not that the pixels are right, so this is checked here.
   * **Order is the order they are created in**, not filename order as Apple
     reads it — so the files are sorted and uploaded sequentially, and the set's
     relationship is then PATCHed explicitly to pin it.
@@ -30,8 +37,10 @@ import argparse
 import hashlib
 import json
 import pathlib
+import struct
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -93,6 +102,51 @@ def api(token, path, method="GET", body=None):
         die("%s %s -> HTTP %d\n%s" % (method, url, e.code, e.read().decode()[:900]))
 
 
+# A placeholder plate is saturated yellow. Brand orange #F7943F and every
+# severity colour clear the b < 90 bound comfortably, so a warning bar in a
+# popover frame cannot trip this.
+PLATE_MIN_SAMPLES = 8
+
+
+def plate_samples(path, step=2):
+    """Count unresolvable-image placeholder pixels, or None if unreadable.
+
+    Converted to BMP because this script is stdlib-only: BMP needs no
+    decompression and no PNG un-filtering, just a header and raw rows. Sampled
+    on a full-resolution grid rather than downscaled, so a small plate is never
+    averaged away into the pixels around it.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        bmp = pathlib.Path(td) / "frame.bmp"
+        r = subprocess.run(["sips", "-s", "format", "bmp", str(path), "--out", str(bmp)],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or not bmp.exists():
+            return None
+        data = bmp.read_bytes()
+    try:
+        off = struct.unpack_from("<I", data, 10)[0]
+        w = struct.unpack_from("<i", data, 18)[0]
+        h = struct.unpack_from("<i", data, 22)[0]
+        bpp = struct.unpack_from("<H", data, 28)[0]
+    except struct.error:
+        return None
+    if bpp not in (24, 32):
+        return None
+    nbytes = bpp // 8
+    rowsize = ((bpp * w + 31) // 32) * 4
+    flip = h > 0            # positive height means rows are stored bottom-up
+    h = abs(h)
+    hits = 0
+    for y in range(0, h, step):
+        base = off + (h - 1 - y if flip else y) * rowsize
+        for x in range(0, w, step):
+            i = base + x * nbytes
+            b, g, r_ = data[i], data[i + 1], data[i + 2]     # BMP is BGR
+            if r_ > 200 and g > 170 and b < 90 and abs(r_ - g) < 70:
+                hits += 1
+    return hits
+
+
 def check_image(path):
     """Geometry and alpha, before anything is sent. sips is the same tool the
     designer's own checker uses, so a disagreement means a different file."""
@@ -109,6 +163,14 @@ def check_image(path):
         die("%s is %dx%d — not an accepted macOS screenshot size" % (path.name, w, h))
     if got.get("hasAlpha") != "no":
         die("%s carries an alpha channel — App Store Connect rejects it" % path.name)
+    plates = plate_samples(path)
+    if plates is None:
+        die("%s could not be decoded for the placeholder check" % path.name)
+    if plates >= PLATE_MIN_SAMPLES:
+        die("%s contains a SwiftUI image placeholder (%d plate samples). A frame "
+            "rendered through ImageRenderer draws Image(systemName:) inside a "
+            ".buttonStyle(.borderless) button as a yellow plate; re-render it "
+            "through the hosting path or crop it out." % (path.name, plates))
     return w, h
 
 
@@ -141,7 +203,7 @@ def main():
         print("  %-24s %dx%-5d %6d B  md5 %s"
               % (f.name, w, h, f.stat().st_size,
                  hashlib.md5(f.read_bytes()).hexdigest()[:12]))
-    print("\n%d file(s) pass geometry and alpha checks." % len(files))
+    print("\n%d file(s) pass geometry, alpha and placeholder checks." % len(files))
 
     token = jwt(creds())
     apps = api(token, "apps?filter[bundleId]=%s" % BUNDLE_ID)["data"]
