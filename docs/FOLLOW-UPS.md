@@ -233,6 +233,18 @@ The live App Store Connect state and the release runbook are in
 
 ## Housekeeping
 
+- [ ] **`product.facts` and `docs/marketing-facts.md` must be updated the moment
+      any install path starts working.** Their `availability_status` block says
+      the App Store listing is not live, the Homebrew tap is empty, and no
+      notarized build exists. Those three lines are consumed by
+      `appideas-designer` for the appideas.com landing page, and they fail
+      *unsafely*: the day a path starts working, the contract is telling a
+      consumer not to publish something that is now true, and (worse, later) a
+      consumer who stopped re-reading will publish an install that 404s. So
+      whoever publishes the cask, ships the notarized build, or sees the listing
+      approved bumps the contract in the same pass and messages the designer —
+      a version bump alone is not notice (playbook §5).
+
 - [ ] **The Homebrew tap has never been published.**
       `appideasDOTcom/homebrew-tap` exists and is public but is **empty** — no
       cask was ever pushed — so `brew install appideasDOTcom/tap/tokes` does not

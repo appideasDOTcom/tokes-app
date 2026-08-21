@@ -1,6 +1,6 @@
 ---
 name: visual-verify
-description: Screenshot Tokes' menu bar item or Settings window driven by synthetic usage data, to prove a UI change actually renders. Use when a change affects the status item icon/label or SettingsView and you need visual proof rather than only unit tests — especially when the live usage API is unavailable (429/offline) so the real app shows nothing.
+description: Render or inspect Tokes' UI off-screen — screenshot the menu bar item, popover or Settings driven by synthetic usage data, and measure a capture (placeholder plates, crop bands, alpha mattes) rather than eyeballing it. Use when a change affects the status item icon/label, PopoverView or SettingsView and you need visual proof rather than only unit tests (especially while the usage API is 429ing so the real app draws nothing), or when handing captures to the designer and a claim about what they contain has to be checkable.
 ---
 
 # Visually verifying a Tokes UI change
@@ -111,6 +111,22 @@ Both branches are cheaper to assert textually — the strings come from
 func — than to photograph. Reach for a capture only when the question is
 genuinely about layout.
 
+## Before building a harness: the popovers are already rendered, both ways
+
+`scripts/screenshots.sh --states` writes every app state to
+`build/appstore/states/`, and since 2026-08-21 it renders the popovers **twice**,
+because no single path can give correct header chrome above 1x (next section):
+
+| File | Path | What you get |
+|---|---|---|
+| `popover-{near-limit,both-sources}-{light,dark}.png` | `ImageRenderer` @9x/6x | real resolution, **placeholder plates in the header** |
+| `popover-*-hosted-{light,dark}.png` | hosted + `cacheDisplay` @1x | header correct, **true 1x** (320pt wide) |
+
+The operator ruled that the app is not changing to suit the capture tool
+(`.borderless` stays — `docs/FOLLOW-UPS.md`), so this is settled, not a bug
+awaiting a fix. Crop the header off the crisp pair, or place the hosted pair.
+On Retina hardware the hosted pair becomes a real 2x and the trade disappears.
+
 ## Which render path — and what each one silently breaks
 
 Two ways to capture SwiftUI off-screen. They are **not** interchangeable, and a
@@ -165,10 +181,34 @@ Two techniques that answered questions a screenshot couldn't, both cheap:
   a store-frame crop — and it agreed with their independent edge detection to
   within 0.1%.
 
-No PIL or numpy on this machine. For stdlib-only pixel work, `sips -s format bmp`
-then parse the header and slice raw rows — no decompression, no PNG un-filtering.
-Sample a full-resolution grid rather than downscaling first, or a small feature
-gets averaged away into its surroundings.
+No PIL or numpy on this machine. Two routes, and the second is usually the
+better one here: stdlib Python via `sips -s format bmp` then parse the header and
+slice raw rows (no decompression, no PNG un-filtering), **or** a Swift script run
+interpreted — AppKit's `NSBitmapImageRep.colorAt(x:y:)` is already available and
+needs no build step. Either way, sample a full-resolution grid rather than
+downscaling first, or a small feature gets averaged away into its surroundings.
+
+The Swift route is committed as `inspect-capture.swift` beside this file, so the
+common questions don't need re-deriving:
+
+```bash
+swift .claude/skills/visual-verify/inspect-capture.swift plates <png…>   # placeholder plates + bbox as % of height
+swift .claude/skills/visual-verify/inspect-capture.swift probe  <png…>   # size + RGBA at three points
+swift .claude/skills/visual-verify/inspect-capture.swift matte  <in> <out> 0.12 2
+swift .claude/skills/visual-verify/inspect-capture.swift crop   <in> <out> 0 0 320 40 4
+```
+
+**`matte` is not a nicety — budget for it.** The `--states` output preserves
+alpha deliberately, so a *dark*-appearance capture is near-white ink on nothing:
+open it in anything that mattes on white and it reads as "every label is
+missing", which is alarming and wrong. Composite onto ~0.12 grey before judging
+one. (Building the `NSColor` for that composite: `NSColor(deviceRed:…)`, never
+`NSColor(red:…)` — the latter has no colour space and logs
+`Unrecognized colorspace number -1` once per pixel.)
+
+And when you need to prove a glyph *renders* rather than that a plate is absent,
+`crop` the region and look at it. "0 plate pixels" is equally true of a header
+drawn correctly and a header with no buttons in it at all.
 
 ## Asserting a Picker's options (better than a screenshot)
 
