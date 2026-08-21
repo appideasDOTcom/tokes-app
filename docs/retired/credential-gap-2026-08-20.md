@@ -1,20 +1,21 @@
-# The App Store build cannot be connected by a normal user
+# RETIRED — The App Store build cannot be connected by a normal user
 
-**Status 2026-08-20 (evening): RESOLVED in the working tree; still a blocker
-for build 5.** Do not submit 1.4.2 / build 5 — it predates the fix. The
-resolution, landed and tested (see `docs/FOLLOW-UPS.md` for the decision
-record):
-
-- **Copilot** — sanctioned "Sign in with GitHub" device flow
-  (`CopilotCredentialSource.githubApp`, default for this flavor), self-refreshing
-  tokens, usage from the documented billing endpoints.
-- **Claude** — guided user-run export: Settings walks the user through
-  `ClaudeCodeExport.exportCommand` (keychain → `~/.claude/tokes-credentials.json`)
-  plus an optional Claude Code SessionStart hook that re-exports each session
-  (verified end-to-end against a real session), then the standard powerbox
-  import. An expired imported token now fails with guidance
-  (`CredentialError.importedExpired`) instead of a bare 401. First launch
-  auto-opens Settings.
+> **Closed 2026-08-20.** This documents a blocker that no longer exists, kept
+> for the reasoning that shaped the fix. **For how connecting actually works
+> today, read `../CREDENTIALS.md`** — it carries the current mechanism and the
+> still-live "do not re-propose" list. Nothing in this file is a to-do.
+>
+> What closed it: a GitHub App device-flow sign-in for Copilot
+> (`CopilotCredentialSource.githubApp`) and a guided user-run export plus
+> optional SessionStart hook for Claude (`ClaudeCodeExport`). Both landed and
+> shipped in build 6, and both were verified live by the operator.
+>
+> Two things below are **superseded and wrong to act on now**: the "one live
+> path" section proposes Tokes doing its own Claude OAuth, which Anthropic's
+> 2026-02-19 policy forbids regardless of whether it works mechanically; and
+> the CIMD probe it names as "the first action for the next session" was
+> attempted and is blocked by a Cloudflare challenge, browser-only, and moot
+> for the same policy reason.
 
 The analysis below stands as the record of why the design is shaped this way.
 The dead ends remain dead — do not re-propose them.

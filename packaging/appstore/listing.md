@@ -10,6 +10,13 @@ that oversells a sandboxed build is a metadata rejection *and* a support burden.
 
 ---
 
+> **The description below is newer than what is live.** The CONNECTING IT
+> section was rewritten 2026-08-20 for build 6's sign-in and guided export; the
+> pushed copy still describes only "paste a token / import a file". Push it with
+> `scripts/appstore-metadata.py` before submitting — the live text undersells
+> the app and, worse, tells users to do something that is no longer the primary
+> path. Pushing metadata is not submitting.
+
 ## Name (30 max)
 
 ```
@@ -84,11 +91,14 @@ trend line instead of a single number. Nothing leaves your Mac.
 
 CONNECTING IT
 
-Tokes reads your own usage from your own account, using a credential you supply:
+Tokes reads your own usage from your own account, and nothing else:
 
-• Paste an OAuth token in Settings — stored in your keychain, nowhere else
-• Or import a credentials file you pick yourself in a file panel. Tokes re-reads
-  it on each refresh, so a rotated token keeps working
+• GitHub Copilot: sign in with GitHub, in the app. Tokes asks for one read-only
+  permission — your plan's billing usage — and keeps itself signed in
+• Claude: Settings walks you through exporting your existing Claude Code login
+  to a file and picking it, with an optional one-line addition to Claude Code
+  that keeps that file current
+• Or paste a token yourself, for either service — stored in your keychain
 
 Requires an active Claude subscription and/or GitHub Copilot seat. Tokes does not
 provide, resell, or include either service.

@@ -8,8 +8,12 @@ import Foundation
 /// "Plan: read", which is all the billing usage endpoints require.
 enum GitHubAppConfig {
     /// The registered GitHub App's client ID ("Dev Tokes", App ID 4666350,
-    /// registered 2026-08-20 — see docs/github-app-setup.md). Public by
-    /// design; the device flow uses no client secret.
+    /// registered 2026-08-20). Public by design; the device flow uses no client
+    /// secret, and refreshing a device-flow token needs none either.
+    ///
+    /// Re-registration and rotation steps: docs/.private/github-app-setup.md
+    /// (git-ignored, so it is absent from a clone — hence the error message
+    /// below names no path).
     static let clientID = "Iv23lipdHFpNL7ZW67E4"
 }
 
@@ -26,7 +30,9 @@ enum GitHubAuthError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "This build has no GitHub App client ID. See docs/github-app-setup.md."
+            return "This build was compiled without a GitHub App client ID, "
+                + "so GitHub sign-in is unavailable. Use a manual GitHub token "
+                + "in Settings, or install an official build."
         case .notConnected:
             return "Not signed in to GitHub — connect in Settings."
         case .storage:

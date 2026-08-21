@@ -86,8 +86,11 @@ A separate artifact from the notarized zip above, built from the same source
 with `-DTOKES_APP_STORE`. Read `APP-STORE-COMPLIANCE.md` for the design and
 `.private/APP-STORE-SUBMISSION.md` for what is left to submit — the first explains what
 that flag removes and why, the second carries the current App Store Connect
-state and the blockers no script can supply. The one-time account setup is done
-and recorded in `retired/appstore-account-setup-2026-08-19.md`.
+state and the blockers no script can supply. `CREDENTIALS.md` covers the third
+thing a release touches: how a user connects each provider, which differs by
+flavor and is the part most easily broken by a well-meaning refactor. The
+one-time account setup is done and recorded in
+`retired/appstore-account-setup-2026-08-19.md`.
 
 Build and audit locally, no Apple certificates required:
 

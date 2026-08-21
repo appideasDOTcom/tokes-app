@@ -79,14 +79,37 @@ once you can see where the icon landed. `sips -z <h> <w>` upscales for reading.
 `screencapture -x -o -l<CGWindowID(window.windowNumber)> out.png` captures one
 window directly and avoids the coordinate problem entirely.
 
-`SettingsView` is a fixed `460x560` and scrolls internally, so a taller window
-will **not** reveal the Behavior section. Find the `NSScrollView` in the hosting
-view's subtree and scroll it before capturing:
+`SettingsView` is a fixed **`460x620`** and scrolls internally, so a taller
+window will **not** reveal the Behavior section. Find the `NSScrollView` in the
+hosting view's subtree and scroll it before capturing:
 
 ```swift
 scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - scroll.contentView.bounds.height)))
 scroll.reflectScrolledClipView(scroll.contentView)
 ```
+
+### The credential sections are state machines, not static forms
+
+Since the onboarding work, most of Settings' height is conditional, and a
+screenshot only ever shows one branch. What renders depends on state the harness
+must set up deliberately:
+
+- **GitHub Copilot → Sign in with GitHub** renders one of five phases from
+  `GitHubConnectModel.phase` (`idle`, `requesting`, `awaitingUser`, `connected`,
+  `failed`). The model is a `@StateObject`, so drive it by setting
+  `githubModel.keychainService` to a **test** service and seeding a
+  `GitHubAppTokens` there — never the real slot, which holds the operator's
+  live session.
+- **Claude → Import a Claude Code credentials file** renders the export
+  walkthrough (command + hook disclosure) only while `claudeImportPath == nil`,
+  and switches to the refresh-commands disclosure once a file is imported. So
+  the walkthrough is invisible in any harness whose bookmark defaults already
+  carry an import.
+
+Both branches are cheaper to assert textually — the strings come from
+`ClaudeCodeExport`, and `PopoverView.offersSettingsShortcut` is a pure static
+func — than to photograph. Reach for a capture only when the question is
+genuinely about layout.
 
 ## Asserting a Picker's options (better than a screenshot)
 

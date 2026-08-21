@@ -8,6 +8,16 @@ work log that closed it out; this report is the current state, derived from
 scratch — every number is from runs made today, and every uncovered region was
 re-read in source rather than carried over.
 
+> **RETIRED 2026-08-20 (evening) — the numbers are superseded; the method is not.**
+> Measured at `8e04712`, when the suite was 319 direct / 316 App Store. The
+> onboarding work landed the same day and the suite is now **377 direct
+> (2 skipped) / 374 App Store**, across code this report never saw
+> (`GitHubAppAuth`, `CopilotBillingClient`, `GitHubConnectModel`,
+> `ClaudeCodeExport`, first-run). Do not quote its percentages as current.
+> **§3.1 is still the reference for llvm-cov's provable false zeros** — that
+> analysis is about the tool, not about this commit — and the procedure lives
+> in `scripts/coverage-regions.py`'s docstring. Re-derive before citing a number.
+
 > **Snapshot in time.** This report is kept in `docs/` as the current reference,
 > but it describes one commit and does not update itself. Re-derive it with two
 > `swift test --enable-code-coverage` runs plus `scripts/coverage-regions.py`

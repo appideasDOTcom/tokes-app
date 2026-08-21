@@ -59,6 +59,21 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   Render any size or appearance headlessly with `ictool` (inside Icon Composer.app) rather
   than opening the GUI — renditions are `Default`, `Dark`, `TintedLight`, `TintedDark`,
   `ClearLight`, `ClearDark`.
+- **How a user connects is asymmetric, and the asymmetry is the design.**
+  GitHub sanctions third-party access to a user's own usage; Anthropic
+  explicitly forbids it (legal-and-compliance, 2026-02-19). So **Copilot** uses
+  a real device-flow sign-in against Tokes' own GitHub App — mouse-only,
+  self-refreshing, documented billing endpoints — while **Claude** is a guided
+  *user-run* export (`ClaudeCodeExport`) that the user then imports through the
+  powerbox, because macOS Claude Code is keychain-only and Tokes must never read
+  a foreign store. An optional Claude Code `SessionStart` hook re-exports each
+  session, which is the only reason that file stays fresh. Full mechanism,
+  invariants, and the dead-end list: `docs/CREDENTIALS.md`. Three things that
+  look like bugs and aren't: an org-provided Copilot seat legitimately has no
+  per-user billing data; the Copilot percentage is measured against a
+  user-picked plan allowance (GitHub doesn't report entitlement); and the
+  history series id stays `copilot_premium` on both meters so history survives
+  a premium-requests → AI-credits migration.
 - **Two distribution flavors.** `scripts/build.sh --app-store` compiles with
   `-DTOKES_APP_STORE`, which `#if`-excludes every credential reader that touches
   another app's store. Read `docs/APP-STORE-COMPLIANCE.md` before touching
@@ -74,9 +89,18 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
     `/usr/bin/security` and `SecItemCopyMatching` against Claude Code's keychain
     item. Guideline 2.5.2 forbids all four. Only `scripts/verify-appstore.sh`
     enforces the difference.
-  - **The forbidden-string list covers behavior, not copy.** The App Store build
-    still contains `~/.claude/.credentials.json` as import help text and as the
-    open panel's starting directory. That's the feature, not a leak.
+  - **The forbidden-string list covers behavior, not copy — and the line moved
+    once already.** The App Store build contains `~/.claude/.credentials.json`
+    (import help text, open-panel directory) and, since the export walkthrough,
+    `find-generic-password` and `Claude Code-credentials` too — that last pair is
+    the command Settings tells the user to run in *their own* terminal, so a
+    strings scan can no longer tell a reader from a caption. Both were removed
+    from `FORBIDDEN` and replaced by a **source-level tripwire** pinning the
+    service name to `ClaudeCodeExport.swift` + `CredentialsProvider.swift`. What
+    still proves no reader is compiled in: the absolute `/usr/bin/security` path
+    (0 occurrences, measured), the `Process`/`NSTask` symbol check, and that
+    tripwire. Re-adding the two strings would fail every build for shipping its
+    own help text; deleting the tripwire would make the check a rubber stamp.
 - **The intermittent `build.sh --app-store` exit 141 was internal, and is fixed
   (2026-08-20).** Three occurrences were blamed on the *caller's* redirection;
   the real cause was `xcodebuild -version | head -1` inside the script — under
@@ -97,6 +121,12 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   string (bash 3.2 reads it as part of the name, and `set -u` aborts). Use
   `grep -c` and stay ASCII. `plutil -extract` also reads dots as keypath
   separators, so it can never find a `com.apple.security.*` key — use PlistBuddy.
+- **`grep -r` across this repo silently skips `docs/.private/`.** The shell's
+  `grep` is a wrapper around `ugrep --ignore-files`, which honours `.gitignore`
+  — and `docs/.private/` is git-ignored. So a repo-wide search for a stale
+  reference reports *clean* while the submission runbook and the GitHub App
+  setup doc still carry it; that exact miss happened here. Audit those two with
+  `find . -name '*.md' -exec command grep -l … {} \;` or `command grep`.
 - **App Store Connect API** (`scripts/appstore-certs.py`), four things that each
   cost a wrong turn:
   - **`csrContent` is the raw PEM, not base64 of it.** Base64-wrapping returns
@@ -240,14 +270,17 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   the traps; the big one: region data contains provable false zeros (ternary
   arms in call arguments, `vpfi` property-initializer records), so verify a
   surprising zero with `llvm-cov show --show-regions` and the tests before
-  calling it untested — see §3.1 of `docs/coverage-report-2026-08-20.md`.
+  calling it untested — see §3.1 of
+  `docs/retired/coverage-report-2026-08-20.md`. That report's *numbers* are
+  retired (measured at 319/316, before the onboarding work); §3.1 is about
+  llvm-cov itself and still stands. Re-derive before quoting a percentage.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
-- **Before any release work, read `docs/HANDOFF-credential-gap.md`.** The
-  credential gap is resolved in the working tree (GitHub device flow + guided
-  Claude export, 2026-08-20), but the *uploaded* build 5 predates the fix —
-  1.4.2/build 5 must not be submitted. The doc records four dead ends already
-  eliminated by measurement, so they don't get re-proposed.
+- **Read `docs/CREDENTIALS.md` before touching any credential path.** It is
+  the current mechanism for both providers plus a list of designs already
+  eliminated by measurement — including two that look obviously right and are
+  not (a demo/sample-data mode; Tokes doing its own Claude OAuth). The blocker
+  those closed is retired at `docs/retired/credential-gap-2026-08-20.md`.
 - **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App
   Store work, and before assuming a contract is current. Both channel contracts
   are current as of 2026-08-20: `assets.app_icon` v2 (designer) and

@@ -6,7 +6,7 @@ produced (certificates, a provisioning profile, an App Store Connect record)
 outlive the session that made them and the next person to touch them will want
 to know what was chosen and why.
 
-The live runbook — bump, build, upload, submit — is `../APP-STORE-SUBMISSION.md`.
+The live runbook — bump, build, upload, submit — is `../.private/APP-STORE-SUBMISSION.md`.
 
 ## What this produced
 
