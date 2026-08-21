@@ -4,10 +4,10 @@ import XCTest
 
 final class ClaudeCredentialParsingTests: XCTestCase {
     func testParsesTokenAndExpiry() {
-        let json = #"{"claudeAiOauth":{"accessToken":"tok-123","expiresAt":1786600000000}}"#
+        let json = #"{"claudeAiOauth":{"accessToken":"tok-123","expiresAt":4102444800000}}"#
         let parsed = CredentialsProvider.parseClaudeCredentials(Data(json.utf8))
         XCTAssertEqual(parsed?.0, "tok-123")
-        XCTAssertEqual(parsed?.1?.timeIntervalSince1970 ?? 0, 1_786_600_000, accuracy: 0.001)
+        XCTAssertEqual(parsed?.1?.timeIntervalSince1970 ?? 0, 4_102_444_800, accuracy: 0.001)
     }
 
     func testParsesTokenWithoutExpiry() {
@@ -120,7 +120,7 @@ final class ClaudeCredentialDispatchTests: XCTestCase {
     }
 
     private func claudeJSON(_ token: String) -> String {
-        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":1786600000000}}"#
+        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":4102444800000}}"#
     }
 
     // MARK: - Manual

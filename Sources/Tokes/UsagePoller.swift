@@ -32,6 +32,9 @@ final class UsagePoller {
     private let credentials: TokenProviding
     private let copilotClient: CopilotUsageFetching
     private let copilotCredentials: TokenProviding
+    /// The `githubApp` source's pipeline; owns its own auth (see the type),
+    /// so the token-provider seam above does not apply to it.
+    private let githubFetcher: GitHubBillingFetching
     /// Where the two settings this class reads live. Injectable so a lifecycle
     /// test can drive an interval or Copilot change in its own domain instead
     /// of mutating the process-wide one another test may be reading.
@@ -73,6 +76,7 @@ final class UsagePoller {
          credentials: TokenProviding = CredentialsProvider(),
          copilotClient: CopilotUsageFetching = CopilotClient(),
          copilotCredentials: TokenProviding = CopilotCredentialsProvider(),
+         githubFetcher: GitHubBillingFetching = GitHubBillingFetcher(),
          defaults: UserDefaults = .standard) {
         self.state = state
         self.history = history
@@ -80,6 +84,7 @@ final class UsagePoller {
         self.credentials = credentials
         self.copilotClient = copilotClient
         self.copilotCredentials = copilotCredentials
+        self.githubFetcher = githubFetcher
         self.defaults = defaults
     }
 
@@ -127,6 +132,7 @@ final class UsagePoller {
     func credentialsChanged() {
         credentials.invalidate()
         copilotCredentials.invalidate()
+        githubFetcher.invalidate()
         refreshNow()
     }
 
@@ -353,8 +359,13 @@ final class UsagePoller {
     }
 
     /// Fetches Copilot usage, re-reading credentials once on 401 in case the
-    /// editor plugin rotated the token.
+    /// editor plugin rotated the token. The `githubApp` source dispatches to
+    /// its own pipeline instead — it refreshes its own tokens, so the
+    /// invalidate-and-retry dance below is already inside it.
     private func fetchCopilotWithRetry() async throws -> UsageLimit {
+        if CopilotCredentialSource.current(in: defaults) == .githubApp {
+            return try await githubFetcher.fetch()
+        }
         do {
             let token = try copilotCredentials.accessToken()
             return try await copilotClient.fetch(token: token)

@@ -81,21 +81,26 @@ final class CredentialSourceAvailabilityTests: XCTestCase {
     }
 
     func testDirectBuildOffersEveryCopilotSource() {
-        XCTAssertEqual(CopilotCredentialSource.available(for: .direct), [.editor, .importedFile, .manual])
+        XCTAssertEqual(CopilotCredentialSource.available(for: .direct),
+                       [.githubApp, .editor, .importedFile, .manual])
+        // The default stays `.editor`, not the recommended sign-in: existing
+        // direct-build installs work with zero setup on it, and flipping their
+        // default to a source that needs a sign-in would break them.
         XCTAssertEqual(CopilotCredentialSource.defaultSource(for: .direct), .editor)
     }
 
     func testAppStoreBuildDropsTheEditorReader() {
-        XCTAssertEqual(CopilotCredentialSource.available(for: .appStore), [.importedFile, .manual])
+        XCTAssertEqual(CopilotCredentialSource.available(for: .appStore),
+                       [.githubApp, .importedFile, .manual])
         XCTAssertFalse(CopilotCredentialSource.available(for: .appStore).contains(.editor))
-        XCTAssertEqual(CopilotCredentialSource.defaultSource(for: .appStore), .importedFile)
+        XCTAssertEqual(CopilotCredentialSource.defaultSource(for: .appStore), .githubApp)
     }
 
     /// Settings carried in from a direct build must not leave the App Store
     /// build pointing at a reader it doesn't ship.
     func testUnavailableSourceNormalizesToThisBuildsDefault() {
         XCTAssertEqual(CredentialSource.claudeCode.normalized(for: .appStore), .importedFile)
-        XCTAssertEqual(CopilotCredentialSource.editor.normalized(for: .appStore), .importedFile)
+        XCTAssertEqual(CopilotCredentialSource.editor.normalized(for: .appStore), .githubApp)
     }
 
     func testAvailableSourcesAreLeftAlone() {

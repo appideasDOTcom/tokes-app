@@ -40,8 +40,55 @@ default credential source is a file that does not exist on a modern Claude Code
 install, and the only alternative needs a terminal command for a token that
 expires in ~1.5 h. **Do not submit 1.4.2.**
 
+**Plan of record, decided 2026-08-20 (operator-approved):** research established
+that GitHub offers a fully sanctioned path (documented per-user billing
+endpoints + GitHub App device flow, "Plan: read" only) while **Anthropic
+explicitly forbids third-party OAuth/login for subscriptions**
+(code.claude.com/docs/en/legal-and-compliance, "Authentication and credential
+use", 2026-02-19) and offers no usage API. So:
+
+- **Copilot half — LANDED 2026-08-20.** `githubApp` credential source: device
+  flow, self-refreshing tokens in Tokes' own keychain item, usage from
+  `/users/{u}/settings/billing/{ai_credit,premium_request}/usage`, plan-picker
+  allowances, org-seat empty state. Default source for the App Store flavor.
+  Registered 2026-08-20 as "Dev Tokes" (App ID 4666350); the client ID is in
+  `GitHubAppConfig.clientID` and the device flow verified live — see
+  `docs/github-app-setup.md`. Remaining: one interactive end-to-end sign-in
+  (operator enters the code in a browser).
+- **Claude half — interim workaround LANDED 2026-08-20 (Phase B):**
+  first-run onboarding around the powerbox import. macOS Claude Code is
+  keychain-only with no file/no override (confirmed in docs), so Settings'
+  imported-file source now walks the user through the export: copy-paste
+  command (`ClaudeCodeExport.exportCommand` → `~/.claude/tokes-credentials.json`,
+  chmod 600) plus an optional Claude Code `SessionStart` hook
+  (`ClaudeCodeExport.hookSnippet`) that re-exports on every session — only on a
+  *successful* keychain read, so a signed-out session can't truncate a working
+  export, and under `umask 077` so even a hook-created file is owner-only.
+  Hook verified end-to-end against a real Claude Code session via `--settings`.
+  An imported token whose recorded `expiresAt` has passed fails at load with
+  guidance (`CredentialError.importedExpired`), not the server's bare 401.
+  First launch ever (persistent-domain check, `AppDelegate.isFirstRun`)
+  auto-opens Settings; a setup error in the popover shows an "Open Settings…"
+  button. Tokes stays a passive reader throughout.
+  `claude setup-token` is a dead end (`user:inference` scope → 403 on usage).
+  Note for the auditor: the foreign keychain strings are now legitimate UI
+  copy, so `verify-appstore.sh` pins them at the *source* level instead
+  (allowed only in `ClaudeCodeExport.swift` + `CredentialsProvider.swift`).
+- **Claude half — sanctioned endgame:** permission request drafted at
+  `docs/anthropic-permission-request.md`; operator sends via the legal page's
+  contact route. Watch the paused Agent SDK subscription-credit program — the
+  likeliest home for an official usage surface.
+
 
 ## Open: does Anthropic accept a third-party CIMD `client_id`?
+
+**Probe attempted 2026-08-20 — inconclusive at the HTTP layer.** Both the CIMD
+URL and Claude Code's own client_id get a Cloudflare bot challenge (403 "Just a
+moment…") from `curl`, so the authorize endpoint's answer is only reachable
+from a real browser session. Lower priority than it reads below: the 2026-02-19
+policy text forbids offering Claude.ai login regardless of whether CIMD works
+mechanically, so the outreach draft above is the real path; a browser probe is
+still worth one minute for the outreach's technical framing.
 
 **Untested — one unauthenticated GET decides it, and the payoff is large.**
 

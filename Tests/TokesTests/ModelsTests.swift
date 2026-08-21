@@ -41,7 +41,7 @@ final class UsageProviderTests: XCTestCase {
 }
 
 final class ResetFormatterTests: XCTestCase {
-    private let now = Date(timeIntervalSince1970: 1_786_600_000)
+    private let now = Date(timeIntervalSince1970: 4_102_444_800)
 
     func testMinutesOnly() {
         XCTAssertEqual(ResetFormatter.resetsIn(now.addingTimeInterval(45 * 60), from: now), "resets in 45m")

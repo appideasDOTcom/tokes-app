@@ -193,8 +193,14 @@ final class CopilotCredentialDispatchTests: XCTestCase {
         try importFile(#"{"github.com":{"oauth_token":"gho_imported"}}"#)
 
         #if TOKES_APP_STORE
-            XCTAssertEqual(try provider.accessToken(), "gho_imported",
-                           "the App Store build falls back to the source it does ship")
+            // `editor` normalizes to the sanctioned GitHub sign-in, whose
+            // pipeline lives in GitHubBillingFetcher — the poller dispatches
+            // there before this provider, so reaching it is an error, not a
+            // fallback to the imported file.
+            XCTAssertEqual(CopilotCredentialSource.current(in: defaults), .githubApp)
+            XCTAssertThrowsError(try provider.accessToken()) { error in
+                XCTAssertEqual(error as? CopilotCredentialError, .sourceUnavailable)
+            }
         #else
             XCTAssertEqual(CopilotCredentialSource.current(in: defaults), .editor)
         #endif

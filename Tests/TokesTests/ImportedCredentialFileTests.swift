@@ -38,7 +38,7 @@ final class ImportedCredentialFileTests: XCTestCase {
     }
 
     private func claudeCredentials(token: String) -> String {
-        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":1786600000000}}"#
+        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":4102444800000}}"#
     }
 
     // MARK: - Bookmark lifecycle
@@ -134,7 +134,7 @@ final class ImportedCredentialFileTests: XCTestCase {
         try file.store(try write(claudeCredentials(token: "tok-1")))
         let (token, expiry) = try CredentialsProvider.loadImportedToken(from: file)
         XCTAssertEqual(token, "tok-1")
-        XCTAssertEqual(expiry?.timeIntervalSince1970 ?? 0, 1_786_600_000, accuracy: 0.001)
+        XCTAssertEqual(expiry?.timeIntervalSince1970 ?? 0, 4_102_444_800, accuracy: 0.001)
     }
 
     func testWrongFileTypeIsRejectedRatherThanMisread() throws {

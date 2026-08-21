@@ -77,16 +77,19 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   - **The forbidden-string list covers behavior, not copy.** The App Store build
     still contains `~/.claude/.credentials.json` as import help text and as the
     open panel's starting directory. That's the feature, not a leak.
-- **Never redirect or pipe `build.sh --app-store`.** Twice now it has exited
-  141 (SIGPIPE) after printing "Build complete!", leaving a half-assembled,
-  `linker-signed` bundle with `Sealed Resources=none` that `verify-appstore.sh`
-  scores **14 failed** — which reads as a compliance regression rather than a
-  broken build. A good bundle audits 32/0.
-  **"Run it bare" is not achievable from an agent session** — the Bash tool
-  captures stdout through a pipe, so the script takes SIGPIPE anyway; hit again
-  2026-08-20. Redirect to a *file* instead (`> log 2>&1`) and read the exit
-  status: a file descriptor cannot SIGPIPE, and the pipe never sees the volume
-  that triggers it. Then `tail` the log.
+- **The intermittent `build.sh --app-store` exit 141 was internal, and is fixed
+  (2026-08-20).** Three occurrences were blamed on the *caller's* redirection;
+  the real cause was `xcodebuild -version | head -1` inside the script — under
+  `set -o pipefail`, `head -1` closes the pipe after one line and xcodebuild
+  takes SIGPIPE writing its second, racily on buffer timing. It struck even
+  with output redirected to a file (which is how it was finally isolated: a
+  file descriptor can't SIGPIPE, so the killer had to be inside). The script
+  died right after SwiftPM's "Build complete!", before assembly/signing,
+  leaving an unsigned key-less bundle that audits ~16 failed and reads as a
+  compliance regression. Now parsed with `awk 'NR==1'`, which reads all input.
+  Same trap class as the `grep -q` note below — under pipefail, never put an
+  early-exiting consumer downstream of a producer that keeps writing. Still
+  redirect the build to a *file* (`> log 2>&1`) — the log is chatty.
 - **`scripts/verify-appstore.sh` has two shell traps baked into its comments,**
   both of which silently turned checks into passes before they were found:
   `grep -q` under `set -o pipefail` (the producer takes SIGPIPE, so the pipeline
@@ -234,9 +237,10 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   calling it untested — see §3.1 of `docs/coverage-report-2026-08-20.md`.
 - Build with `./scripts/build.sh --run`; package releases with `scripts/release.sh`
   (version comes from `scripts/Info.plist`).
-- **Before any release work, read `docs/HANDOFF-credential-gap.md`.** The App
-  Store build ships with no viable way for a normal user to connect their
-  account; 1.4.2 must not be submitted. It records four dead ends already
+- **Before any release work, read `docs/HANDOFF-credential-gap.md`.** The
+  credential gap is resolved in the working tree (GitHub device flow + guided
+  Claude export, 2026-08-20), but the *uploaded* build 5 predates the fix —
+  1.4.2/build 5 must not be submitted. The doc records four dead ends already
   eliminated by measurement, so they don't get re-proposed.
 - **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App
   Store work, and before assuming a contract is current. Both channel contracts

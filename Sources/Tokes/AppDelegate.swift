@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsKeys.credentialSource: CredentialSource.defaultSource().rawValue,
             SettingsKeys.copilotEnabled: false,
             SettingsKeys.copilotCredentialSource: CopilotCredentialSource.defaultSource().rawValue,
+            SettingsKeys.copilotPlan: CopilotPlan.pro.rawValue,
+            SettingsKeys.copilotCustomAllowance: 1500.0,
             SettingsKeys.showScopedWeekly: true,
         ])
     }
@@ -34,10 +36,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defaults.removeObject(forKey: SettingsKeys.legacyShowLabel)
     }
 
+    /// Whether this launch is the app's first ever, decided from the
+    /// *persistent* domain read by name — not `object(forKey:)`, because the
+    /// registration domain is process-global and volatile: once anything has
+    /// called `register(defaults:)`, every key reads as set through every
+    /// `UserDefaults` instance and "did the user ever set this?" can no longer
+    /// be asked that way. Any persisted configuration counts as evidence of a
+    /// prior run, so an upgrade install that predates the marker key is never
+    /// mistaken for a fresh one.
+    static func isFirstRun(domainName: String = Bundle.main.bundleIdentifier
+        ?? CredentialsProvider.manualService) -> Bool {
+        let persisted = UserDefaults.standard.persistentDomain(forName: domainName) ?? [:]
+        guard (persisted[SettingsKeys.didCompleteFirstRun] as? Bool) != true else { return false }
+        let priorRunEvidence = [
+            SettingsKeys.credentialSource, SettingsKeys.copilotEnabled,
+            SettingsKeys.menuBarLabel, SettingsKeys.legacyShowLabel,
+            SettingsKeys.claudeCredentialFile, SettingsKeys.copilotCredentialFile,
+        ]
+        return !priorRunEvidence.contains { persisted[$0] != nil }
+    }
+
     /// Registers settings defaults and starts polling and the menu bar item.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let firstRun = Self.isFirstRun()  // before registerDefaults — see its doc comment
         Self.migrateSettings()  // before registerDefaults — see its doc comment
         Self.registerDefaults()
+        UserDefaults.standard.set(true, forKey: SettingsKeys.didCompleteFirstRun)
 
         DebugLog.log("Tokes launched — \(Distribution.current.displayName) build, "
             + "sandboxed=\(SandboxAudit.isSandboxed)")
@@ -56,6 +80,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.poller = poller
         controller = StatusItemController(state: state, poller: poller)
         poller.start()
+
+        // A fresh install has nothing to poll and nothing to draw — open
+        // Settings so the first thing the user sees is the way in, not a
+        // menu bar item reporting a credentials error.
+        if firstRun {
+            controller?.openSettings()
+        }
     }
 
     /// Stops the poll timer and its observers.

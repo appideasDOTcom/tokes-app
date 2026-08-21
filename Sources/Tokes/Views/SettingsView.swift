@@ -59,6 +59,10 @@ struct SettingsView: View {
     @State private var copilotImportError: String?
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    @AppStorage(SettingsKeys.copilotPlan) private var copilotPlan = CopilotPlan.pro.rawValue
+    @AppStorage(SettingsKeys.copilotCustomAllowance) private var copilotCustomAllowance = 1500.0
+    @StateObject private var githubModel = GitHubConnectModel()
+
     /// Computed rather than stored so they can pick up `bookmarkDefaults`;
     /// `ImportedCredentialFile` keeps no state of its own beyond that domain,
     /// so rebuilding one per access costs nothing.
@@ -167,6 +171,8 @@ struct SettingsView: View {
                 account: CopilotCredentialsProvider.manualAccount) ?? ""
             claudeImportPath = claudeFile.displayPath
             copilotImportPath = copilotFile.displayPath
+            githubModel.keychainService = keychainService
+            githubModel.refreshConnectionState()
             normalizeMenuBarLabel()
         }
         // Turning off Copilot or the scoped weekly limit removes its menu bar
@@ -196,19 +202,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .importedFile:
-            importControls(
-                path: claudeImportPath,
-                error: claudeImportError,
-                help: "Pick the credentials file Claude Code writes, normally "
-                    + "~/.claude/.credentials.json. Tokes re-reads it on every refresh, so a "
-                    + "rotated token keeps working. If Claude Code stores your login only in "
-                    + "the keychain there is no such file — paste a token instead.",
-                importTitle: "Import Claude Code Credentials",
-                importMessage: "Choose ~/.claude/.credentials.json",
-                directory: RealHome.url.appendingPathComponent(".claude"),
-                file: claudeFile,
-                setPath: { claudeImportPath = $0 },
-                setError: { claudeImportError = $0 })
+            claudeImportControls
         case .manual:
             SecureField("OAuth access token", text: $manualToken)
             HStack(spacing: 8) {
@@ -227,9 +221,96 @@ struct SettingsView: View {
         }
     }
 
+    /// The imported-file source with its export walkthrough.
+    ///
+    /// Claude Code on macOS keeps its sign-in in the keychain only — there is
+    /// no credentials file to pick until the user makes one — so before the
+    /// import button this shows the export command (and the optional
+    /// SessionStart hook that keeps the export fresh). Both strings come from
+    /// `ClaudeCodeExport`, the single source of truth the tests pin.
+    @ViewBuilder
+    private var claudeImportControls: some View {
+        if claudeImportPath == nil {
+            Text("Claude Code on macOS keeps your sign-in in the keychain, not in a file — "
+                + "so export it to one first, then import that file here. Tokes re-reads the "
+                + "file on every refresh and never touches the keychain itself.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("1. Run this in Terminal to export your Claude Code sign-in:")
+                .font(.caption)
+            commandRow(ClaudeCodeExport.exportCommand)
+            DisclosureGroup {
+                claudeHookHelp
+            } label: {
+                Text("2. Optional: keep the export fresh automatically")
+                    .font(.caption)
+            }
+        }
+        importControls(
+            path: claudeImportPath,
+            error: claudeImportError,
+            help: claudeImportPath == nil
+                ? "3. Import the exported file — the panel opens in your ~/.claude folder, "
+                    + "where the export landed as tokes-credentials.json."
+                : "Tokes re-reads this file on every refresh. When the token in it expires, "
+                    + "open Claude Code to refresh it (automatic with the hook below) or "
+                    + "re-run the export command.",
+            importTitle: "Import Claude Code Credentials",
+            importMessage: "Choose \(ClaudeCodeExport.exportedFilePath)",
+            directory: RealHome.url.appendingPathComponent(".claude"),
+            file: claudeFile,
+            setPath: { claudeImportPath = $0 },
+            setError: { claudeImportError = $0 })
+        if claudeImportPath != nil {
+            DisclosureGroup {
+                Text("Export again after signing in to Claude Code afresh:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                commandRow(ClaudeCodeExport.exportCommand)
+                claudeHookHelp
+            } label: {
+                Text("Export & refresh commands")
+                    .font(.caption)
+            }
+        }
+    }
+
+    /// The optional SessionStart hook: what it does and the snippet to merge.
+    @ViewBuilder
+    private var claudeHookHelp: some View {
+        Text("Merge this into the \"hooks\" section of ~/.claude/settings.json. Every new "
+            + "Claude Code session then re-exports the current token, so the file Tokes "
+            + "watches refreshes itself:")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        commandRow(ClaudeCodeExport.hookSnippet)
+    }
+
+    /// A copyable terminal command or snippet: selectable monospaced text with
+    /// a Copy button beside it.
+    private func commandRow(_ command: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(command)
+                .font(.system(size: 10, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            }
+        }
+    }
+
     @ViewBuilder
     private var copilotCredentialControls: some View {
         switch CopilotCredentialSource(rawValue: copilotCredentialSource) ?? .manual {
+        case .githubApp:
+            githubSignInControls
         case .editor:
             Text("Reads the token your editor's Copilot plugin keeps in ~/.config/github-copilot, falling back to the GitHub CLI.")
                 .font(.caption)
@@ -264,6 +345,92 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// The device-flow sign-in, phase by phase. All state and transitions live
+    /// in `GitHubConnectModel`; this renders the current phase and forwards
+    /// button presses.
+    @ViewBuilder
+    private var githubSignInControls: some View {
+        switch githubModel.phase {
+        case .idle:
+            Text("Sign in with your GitHub account. Tokes asks for read-only access "
+                + "to your plan's billing usage — nothing else — and shows your "
+                + "Copilot allowance consumption from GitHub's billing reports.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Sign in with GitHub…") {
+                githubModel.connect(onChange: onCredentialsChanged)
+            }
+        case .requesting:
+            Text("Contacting GitHub…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .awaitingUser(let userCode, let verificationURI):
+            Text("Enter this code at \(verificationURI):")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(userCode)
+                    .font(.system(.title2, design: .monospaced))
+                    .textSelection(.enabled)
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(userCode, forType: .string)
+                }
+            }
+            HStack(spacing: 8) {
+                Button("Open GitHub") {
+                    if let url = URL(string: verificationURI) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                Button("Cancel") { githubModel.cancel() }
+                Text("Waiting for you to authorize…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .connected(let login):
+            HStack(spacing: 8) {
+                Label("Connected as \(login)", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                Button("Disconnect") {
+                    githubModel.disconnect(onChange: onCredentialsChanged)
+                }
+            }
+            copilotPlanControls
+        case .failed(let message):
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Try Again") {
+                githubModel.connect(onChange: onCredentialsChanged)
+            }
+        }
+    }
+
+    /// Plan picker (and the custom allowance field it can reveal). GitHub's
+    /// usage reports carry no entitlement and the plan is not queryable, so
+    /// the percentage is measured against this selection.
+    @ViewBuilder
+    private var copilotPlanControls: some View {
+        Picker("Plan", selection: $copilotPlan) {
+            ForEach(CopilotPlan.allCases, id: \.rawValue) { plan in
+                Text(plan.displayName).tag(plan.rawValue)
+            }
+        }
+        if CopilotPlan(rawValue: copilotPlan) == .custom {
+            TextField("Included monthly allowance", value: $copilotCustomAllowance,
+                      format: .number)
+        }
+        Text("GitHub's usage report doesn't include your plan's allowance, so "
+            + "the percentage is measured against the plan you pick here.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Import / forget buttons plus the current selection, shared by both providers.
@@ -426,14 +593,32 @@ struct SettingsView: View {
         }
     }
 
-    /// The Copilot half of `claudeTestOutcome`, same reasoning.
+    /// The Copilot half of `claudeTestOutcome`, same reasoning. The
+    /// `githubApp` source runs its whole pipeline (stored tokens, refresh,
+    /// billing report) rather than resolving a token first, because that
+    /// pipeline owns its auth.
     static func copilotTestOutcome(source: CopilotCredentialSource,
                                    pastedToken: String,
                                    file: ImportedCredentialFile,
-                                   session: URLSession) async -> TestOutcome {
+                                   session: URLSession,
+                                   keychainService: String = CredentialsProvider.manualService,
+                                   defaults: UserDefaults = .standard) async -> TestOutcome {
         do {
+            if source == .githubApp {
+                let fetcher = GitHubBillingFetcher()
+                fetcher.keychainService = keychainService
+                fetcher.defaults = defaults
+                fetcher.billing = CopilotBillingClient(session: session)
+                fetcher.deviceAuth = GitHubDeviceAuth(session: session)
+                let limit = try await fetcher.fetch()
+                let detail = limit.detail ?? "\(Int(limit.percent.rounded()))% used"
+                return TestOutcome(passed: true, message: "Connected — \(detail)")
+            }
             let token: String
             switch source {
+            case .githubApp:
+                // Handled above; the switch still needs the case to stay exhaustive.
+                throw CopilotCredentialError.sourceUnavailable
             case .manual:
                 guard !pastedToken.isEmpty else { throw CopilotCredentialError.manualMissing }
                 token = pastedToken
@@ -462,9 +647,11 @@ struct SettingsView: View {
         let pastedToken = copilotToken
         let file = copilotFile
         let session = testSession
+        let service = keychainService
         Task {
             let outcome = await Self.copilotTestOutcome(source: source, pastedToken: pastedToken,
-                                                        file: file, session: session)
+                                                        file: file, session: session,
+                                                        keychainService: service)
             await MainActor.run {
                 copilotTestPassed = outcome.passed
                 copilotTestResult = outcome.message

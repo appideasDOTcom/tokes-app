@@ -47,6 +47,11 @@ final class UsagePollerLifecycleTests: XCTestCase {
         copilotClient = MockCopilotClient()
         copilotCredentials = MockCredentials()
         copilotCredentials.token = "copilot-token"
+        // The injected pair above is the legacy pipeline, so the source must
+        // name a legacy path — the App Store flavor defaults to `githubApp`,
+        // which dispatches elsewhere.
+        defaults.set(CopilotCredentialSource.manual.rawValue,
+                     forKey: SettingsKeys.copilotCredentialSource)
         poller = UsagePoller(state: state, history: history,
                              client: client, credentials: credentials,
                              copilotClient: copilotClient,

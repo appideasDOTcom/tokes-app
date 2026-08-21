@@ -202,7 +202,14 @@ final class UsagePollerTests: XCTestCase {
         state.snapshot = UsageSnapshot(limits: [TestFixtures.limit(id: "session", percent: 7)],
                                        fetchedAt: old)
         UserDefaults.standard.set(true, forKey: SettingsKeys.copilotEnabled)
-        defer { UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled) }
+        // Name a legacy source so the injected mock pair below is what polls —
+        // the App Store flavor's default is `githubApp`, a different pipeline.
+        UserDefaults.standard.set(CopilotCredentialSource.manual.rawValue,
+                                  forKey: SettingsKeys.copilotCredentialSource)
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
+        }
 
         let copilot = MockCopilotClient()
         copilot.results = [.success(TestFixtures.copilotLimit(percent: 4)),

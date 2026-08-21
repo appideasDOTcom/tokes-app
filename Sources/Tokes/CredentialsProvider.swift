@@ -12,6 +12,7 @@ enum CredentialError: LocalizedError, Equatable {
     #endif
     case manualMissing
     case sourceUnavailable
+    case importedExpired
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +27,10 @@ enum CredentialError: LocalizedError, Equatable {
         case .sourceUnavailable:
             return "That credential source isn't available in this build. "
                 + "Import a credentials file or paste a token in Settings."
+        case .importedExpired:
+            return "The imported Claude credentials have expired. Open Claude Code to refresh "
+                + "them — with the refresh hook installed the file updates itself; otherwise "
+                + "re-run the export command shown in Settings."
         }
     }
 }
@@ -124,10 +129,19 @@ final class CredentialsProvider {
 
     /// Parses the credentials file the user picked in an open panel. Re-read on
     /// every load, so a token the owning tool rotates is picked up.
-    static func loadImportedToken(from file: ImportedCredentialFile) throws -> (String, Date?) {
+    ///
+    /// A recorded expiry in the past fails *here*, with a message that says
+    /// what to do, rather than as the server's bare 401 — for this source the
+    /// file is all there is, and the fix (open Claude Code / re-export) is
+    /// nothing the user could guess from "HTTP 401".
+    static func loadImportedToken(from file: ImportedCredentialFile,
+                                  now: Date = Date()) throws -> (String, Date?) {
         let data = try file.read()
         guard let parsed = parseClaudeCredentials(data) else {
             throw ImportedFileError.unparsable(file.displayPath ?? "imported file")
+        }
+        if let expiry = parsed.1, expiry <= now {
+            throw CredentialError.importedExpired
         }
         return parsed
     }

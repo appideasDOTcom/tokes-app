@@ -85,6 +85,12 @@ final class CopilotCredentialsProvider: TokenProviding {
     /// Reads a token from the configured source.
     private func loadToken() throws -> String {
         switch source {
+        case .githubApp:
+            // Never reached from the poller — it dispatches this source to
+            // `GitHubBillingFetcher`, which owns its own auth, before the
+            // token-provider path. Kept as an error rather than a crash for
+            // any caller that skips the dispatch.
+            throw CopilotCredentialError.sourceUnavailable
         case .manual:
             guard let token = CredentialsProvider.readManualToken(service: manualService,
                                                                   account: manualAccount),

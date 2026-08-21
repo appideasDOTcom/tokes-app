@@ -27,12 +27,18 @@ final class UsagePollerCopilotTests: XCTestCase {
                              client: client, credentials: credentials,
                              copilotClient: copilotClient, copilotCredentials: copilotCredentials)
         UserDefaults.standard.set(true, forKey: SettingsKeys.copilotEnabled)
+        // These tests exercise the injected legacy client/credentials pair, so
+        // the source must name a legacy path — the App Store flavor's default
+        // is `githubApp`, which dispatches to a different pipeline entirely.
+        UserDefaults.standard.set(CopilotCredentialSource.manual.rawValue,
+                                  forKey: SettingsKeys.copilotCredentialSource)
     }
 
     override func tearDown() {
         poller.stop()
         try? FileManager.default.removeItem(at: tempDir)
         UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
+        UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
         super.tearDown()
     }
 

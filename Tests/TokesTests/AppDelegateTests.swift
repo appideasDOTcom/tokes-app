@@ -31,7 +31,7 @@ final class AppDelegateTests: XCTestCase {
                        CopilotCredentialSource.defaultSource().rawValue)
         #if TOKES_APP_STORE
             XCTAssertEqual(defaults.string(forKey: SettingsKeys.credentialSource), "importedFile")
-            XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "importedFile")
+            XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "githubApp")
         #else
             XCTAssertEqual(defaults.string(forKey: SettingsKeys.credentialSource), "claudeCode")
             XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "editor")

@@ -1,9 +1,23 @@
 # The App Store build cannot be connected by a normal user
 
-**Status 2026-08-20: this is a ship blocker. Do not submit 1.4.2 / build 5.**
-Build 5 is uploaded and audits clean, but it ships an app a TestFlight user
-cannot connect to their own account. Verified by the operator installing it via
-TestFlight as an ordinary user.
+**Status 2026-08-20 (evening): RESOLVED in the working tree; still a blocker
+for build 5.** Do not submit 1.4.2 / build 5 — it predates the fix. The
+resolution, landed and tested (see `docs/FOLLOW-UPS.md` for the decision
+record):
+
+- **Copilot** — sanctioned "Sign in with GitHub" device flow
+  (`CopilotCredentialSource.githubApp`, default for this flavor), self-refreshing
+  tokens, usage from the documented billing endpoints.
+- **Claude** — guided user-run export: Settings walks the user through
+  `ClaudeCodeExport.exportCommand` (keychain → `~/.claude/tokes-credentials.json`)
+  plus an optional Claude Code SessionStart hook that re-exports each session
+  (verified end-to-end against a real session), then the standard powerbox
+  import. An expired imported token now fails with guidance
+  (`CredentialError.importedExpired`) instead of a bare 401. First launch
+  auto-opens Settings.
+
+The analysis below stands as the record of why the design is shaped this way.
+The dead ends remain dead — do not re-propose them.
 
 ## The failure, exactly
 

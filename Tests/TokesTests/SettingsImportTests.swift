@@ -44,7 +44,7 @@ final class SettingsImportTests: XCTestCase {
     }
 
     private func claudeJSON(_ token: String) -> String {
-        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":1786600000000}}"#
+        #"{"claudeAiOauth":{"accessToken":"\#(token)","expiresAt":4102444800000}}"#
     }
 
     private func copilotJSON(_ token: String) -> String {

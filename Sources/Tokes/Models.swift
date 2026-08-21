@@ -8,10 +8,14 @@ enum SettingsKeys {
     static let credentialSource = "credentialSource"
     static let copilotEnabled = "copilotEnabled"
     static let copilotCredentialSource = "copilotCredentialSource"
+    static let copilotPlan = "copilotPlan"
+    static let copilotCustomAllowance = "copilotCustomAllowance"
     static let showScopedWeekly = "showScopedWeekly"
     /// Security-scoped bookmarks for user-imported credentials files.
     static let claudeCredentialFile = "claudeCredentialFileBookmark"
     static let copilotCredentialFile = "copilotCredentialFileBookmark"
+    /// Set after the first launch ever; gates the one-time welcome behavior.
+    static let didCompleteFirstRun = "didCompleteFirstRun"
 
     /// Pre-picker on/off toggle for the menu bar text, migrated to `menuBarLabel`.
     static let legacyShowLabel = "showLabel"
@@ -131,8 +135,11 @@ enum CredentialSource: String, CaseIterable {
 
 /// Where the GitHub token comes from. `.editor` reads the Copilot plugin's own
 /// config and the `gh` CLI, so it is compiled out of the App Store build for the
-/// same reason `CredentialSource.claudeCode` is.
+/// same reason `CredentialSource.claudeCode` is. `.githubApp` is the sanctioned
+/// path — the user signs in through GitHub's device flow, and usage comes from
+/// the documented billing report endpoints — so every build offers it.
 enum CopilotCredentialSource: String, CaseIterable {
+    case githubApp
     case editor
     case importedFile
     case manual
@@ -140,23 +147,30 @@ enum CopilotCredentialSource: String, CaseIterable {
     /// Radio-button title shown in Settings.
     var displayName: String {
         switch self {
+        case .githubApp: return "Sign in with GitHub (recommended)"
         case .editor: return "Use editor sign-in / gh CLI (automatic)"
         case .importedFile: return "Import a Copilot config file"
         case .manual: return "Manual GitHub token"
         }
     }
 
-    /// The sources this build offers, most automatic first.
+    /// The sources this build offers, recommended first.
     static func available(for distribution: Distribution = .current) -> [CopilotCredentialSource] {
         switch distribution {
-        case .direct: return [.editor, .importedFile, .manual]
-        case .appStore: return [.importedFile, .manual]
+        case .direct: return [.githubApp, .editor, .importedFile, .manual]
+        case .appStore: return [.githubApp, .importedFile, .manual]
         }
     }
 
-    /// First-run selection for this build.
+    /// First-run selection for this build. The App Store build starts on the
+    /// sanctioned sign-in; the direct build keeps `.editor`, which works with
+    /// no setup for the users who already have it — flipping their default to
+    /// a source that needs a sign-in would break working installs.
     static func defaultSource(for distribution: Distribution = .current) -> CopilotCredentialSource {
-        available(for: distribution)[0]
+        switch distribution {
+        case .direct: return .editor
+        case .appStore: return .githubApp
+        }
     }
 
     /// Falls back to this build's default when the stored value names a source
@@ -170,6 +184,48 @@ enum CopilotCredentialSource: String, CaseIterable {
     static func current(in defaults: UserDefaults = .standard) -> CopilotCredentialSource {
         (CopilotCredentialSource(rawValue: defaults.string(forKey: SettingsKeys.copilotCredentialSource) ?? "")
             ?? defaultSource()).normalized()
+    }
+}
+
+/// The user's Copilot plan, which decides the included monthly allowance the
+/// billing reports are measured against. GitHub's usage endpoints report raw
+/// quantities only — no entitlement — and the plan itself is not queryable, so
+/// the user picks it (with a custom escape hatch for anything the table
+/// doesn't cover). Allowances are the documented plan totals.
+enum CopilotPlan: String, CaseIterable {
+    case pro
+    case proPlus
+    case max
+    case custom
+
+    /// Picker title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .pro: return "Copilot Pro"
+        case .proPlus: return "Copilot Pro+"
+        case .max: return "Copilot Max"
+        case .custom: return "Custom allowance"
+        }
+    }
+
+    /// The included monthly allowance on the given billing meter. Legacy
+    /// premium-request billing survives only on grandfathered annual Pro/Pro+
+    /// plans, so `.max` there falls back to the Pro+ figure — anyone actually
+    /// in that corner is a `.custom` user.
+    func allowance(mode: CopilotBillingMode, custom: Double) -> Double {
+        switch (self, mode) {
+        case (.custom, _): return custom
+        case (.pro, .aiCredits): return 1500
+        case (.proPlus, .aiCredits): return 7000
+        case (.max, .aiCredits): return 20000
+        case (.pro, .premiumRequests): return 300
+        case (.proPlus, .premiumRequests), (.max, .premiumRequests): return 1500
+        }
+    }
+
+    /// Reads the stored selection, falling back to Pro.
+    static func current(in defaults: UserDefaults = .standard) -> CopilotPlan {
+        CopilotPlan(rawValue: defaults.string(forKey: SettingsKeys.copilotPlan) ?? "") ?? .pro
     }
 }
 

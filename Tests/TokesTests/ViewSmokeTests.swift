@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ViewInspector
 import XCTest
 
 @testable import Tokes
@@ -109,19 +110,20 @@ final class ViewSmokeTests: XCTestCase {
         XCTAssertGreaterThan(wrapped.fittingSize.height, withError.fittingSize.height)
     }
 
-    /// The other half of that: with nothing to show, the banner stands in for
-    /// the "Connecting…" block rather than sitting above it.
+    /// The other half of that: with nothing to show, the banner (plus its
+    /// Open Settings button) stands in for the "Connecting…" block rather
+    /// than sitting above it. Height comparisons across a swap say nothing —
+    /// that lesson is in this test's history — so the swap is asserted
+    /// structurally.
     @MainActor
-    func testAnErrorReplacesTheConnectingBlockRatherThanStackingOnIt() {
-        let connecting = popover(state: makeState(withSnapshot: false))
-        let failed = popover(state: makeState(withSnapshot: false, error: "Something went wrong"))
+    func testAnErrorReplacesTheConnectingBlockRatherThanStackingOnIt() throws {
+        let failed = PopoverView(state: makeState(withSnapshot: false, error: "Something went wrong"),
+                                 onHoverChanged: { _ in }, onSettings: {}, onRefresh: {}, onQuit: {})
 
-        // Pinned because it is the fact that made the old assertion misleading:
-        // these two states differ by a *swap*, so no tolerance-based comparison
-        // between them says anything about whether the banner rendered. That
-        // question is settled in the test above, against a state that keeps its
-        // limits and where the banner is purely additive.
-        XCTAssertLessThan(failed.fittingSize.height, connecting.fittingSize.height)
+        XCTAssertThrowsError(try failed.inspect().find(text: "Connecting…"),
+                             "the banner replaces the connecting block")
+        XCTAssertNoThrow(try failed.inspect().find(button: "Open Settings…"),
+                         "a setup failure with nothing polled offers the way in")
     }
 
     /// First launch: fewer than three samples draws the "Collecting history…"
@@ -209,7 +211,7 @@ final class ViewSmokeTests: XCTestCase {
         #if TOKES_APP_STORE
             XCTAssertEqual(claude, CredentialSource.importedFile.rawValue,
                            "the App Store build must not stay pointed at a reader it lacks")
-            XCTAssertEqual(copilot, CopilotCredentialSource.importedFile.rawValue)
+            XCTAssertEqual(copilot, CopilotCredentialSource.githubApp.rawValue)
         #else
             XCTAssertEqual(claude, CredentialSource.claudeCode.rawValue,
                            "the direct build ships this reader and must keep the choice")

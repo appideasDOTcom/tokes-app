@@ -91,11 +91,16 @@ head2 "Binary contains no out-of-container credential readers"
 # Each of these strings exists only if the code path that uses it was compiled
 # in. Descriptive UI copy is deliberately NOT on this list: the App Store build
 # still says "~/.claude/.credentials.json" in the import help text and opens the
-# panel there, which is the feature working, not a container escape.
+# panel there, which is the feature working, not a container escape. For the
+# same reason "find-generic-password" and "Claude Code-credentials" are no
+# longer here: since the Claude export walkthrough (ClaudeCodeExport.swift)
+# they are command text shown for the *user* to run in their own terminal.
+# What still proves no reader is compiled in: the absolute /usr/bin/security
+# path below (only the shell-out reader has it), the Process/NSTask symbol
+# check (no subprocess execution at all), and the source tripwire after this
+# loop that pins where the foreign service name may appear.
 FORBIDDEN=(
     "/usr/bin/security"          # shells out to read Claude Code's keychain item
-    "find-generic-password"      # ditto
-    "Claude Code-credentials"    # the foreign keychain service name
     "/opt/homebrew/bin/gh"       # shells out to the GitHub CLI
     "/usr/local/bin/gh"          # ...same reader, second path it tries
     "/usr/bin/gh"                # ...and the third. All three, or a refactor
@@ -113,6 +118,19 @@ for pattern in "${FORBIDDEN[@]}"; do
         pass "no reference to \"$pattern\""
     fi
 done
+
+# The source tripwire that replaces the two strings dropped from FORBIDDEN:
+# the foreign keychain service name may appear in exactly two files — the
+# reader that is #if'd out of this build, and the walkthrough copy. A third
+# file naming it means someone is reintroducing a foreign-store reader, which
+# a binary strings scan can no longer distinguish from the legitimate copy.
+SERVICE_HITS=$(grep -rlF "Claude Code-credentials" Sources | sort | tr '\n' ' ')
+SERVICE_EXPECTED="Sources/Tokes/ClaudeCodeExport.swift Sources/Tokes/CredentialsProvider.swift "
+if [[ "$SERVICE_HITS" == "$SERVICE_EXPECTED" ]]; then
+    pass "foreign service name confined to ClaudeCodeExport.swift + CredentialsProvider.swift"
+else
+    fail "foreign service name appears in unexpected sources: $SERVICE_HITS"
+fi
 
 for arch in $(lipo -archs "$BIN"); do
     hits=$(nm -arch "$arch" "$BIN" 2>/dev/null | grep -ciE 'Foundation7Process|_NSTask')

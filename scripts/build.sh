@@ -95,8 +95,13 @@ if [[ "$FLAVOR" == appstore ]]; then
     # App Store Connect validates the build-provenance keys Xcode normally
     # stamps in. A SwiftPM-assembled bundle has to write them itself or upload
     # fails with "Invalid bundle" long before review ever sees it.
-    XCODE_VER=$(xcodebuild -version | head -1 | awk '{print $2}')
-    XCODE_BUILD=$(xcodebuild -version | tail -1 | awk '{print $3}')
+    # awk, never `head -1`: under `set -o pipefail` head closes the pipe after
+    # one line and xcodebuild takes SIGPIPE writing its second — racily, on
+    # buffer timing — so the script died here with exit 141 right after
+    # SwiftPM printed "Build complete!", leaving an unsigned, key-less bundle.
+    # That race, not the caller's redirection, was the intermittent 141.
+    XCODE_VER=$(xcodebuild -version | awk 'NR==1{print $2}')
+    XCODE_BUILD=$(xcodebuild -version | awk 'NR==2{print $3}')
     SDK_VER=$(xcrun --show-sdk-version --sdk macosx)
     SDK_BUILD=$(xcrun --show-sdk-build-version --sdk macosx)
     # DTXcode is the version with dots removed and zero-padded: 26.6 -> 2660.
