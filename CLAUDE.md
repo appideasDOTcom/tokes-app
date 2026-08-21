@@ -200,7 +200,13 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   `Inspection` hook in `SettingsView` exists so hosted tests can visit the
   live view, and the app never signals it. The library's own `ViewHosting`
   calls `makeKeyAndOrderFront` — never use it; host in a windowless
-  `NSHostingController` instead (see `SettingsInteractionTests`).
+  `NSHostingController` instead (see `SettingsInteractionTests`). And **never
+  `inspect()` a view whose subtree renders a `UsageChart`**: `find()` evaluates
+  every child body and Swift Charts' internal `GeometryReader` SIGTRAPs outside
+  a live rendering context — asserting *absence* is the trap, since it forces
+  full traversal. Extract the render condition into a pure `static func` and
+  pin absence on that (see `PopoverView.offersSettingsShortcut` /
+  `PopoverOnboardingTests`).
 - **`StatusItemControllerLiveTests` creates a real `NSStatusItem`** (a brief
   menu-bar flicker; no focus is taken) and removes it in `tearDown`; it skips
   itself where no window server hands out a button. The popover, app

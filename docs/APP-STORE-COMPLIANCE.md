@@ -178,7 +178,7 @@ they were obtained is `retired/appstore-account-setup-2026-08-19.md`.
   a resubmission if a review round-trip outlives it.
 - **App Privacy questionnaire, age rating, and at least one screenshot.** All
   three are web-UI answers and all three block submission. See
-  `APP-STORE-SUBMISSION.md`.
+  `.private/APP-STORE-SUBMISSION.md`.
 *Closed 2026-08-20:* the **privacy policy URL**, which also blocks submission
 but was never an operator answer — it had been specified in
 `packaging/appstore/listing.md` all along and simply never pushed, because it

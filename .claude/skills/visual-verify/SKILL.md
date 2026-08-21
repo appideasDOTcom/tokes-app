@@ -25,16 +25,21 @@ mkdir -p "$SCRATCH/demo"   # harness lives at $SCRATCH/demo/main.swift
 
 cd /path/to/tokes
 bash -c 'SRC=$(ls Sources/Tokes/*.swift Sources/Tokes/Views/*.swift | grep -v "main.swift"); \
-  swiftc -o "'"$SCRATCH"'/Demo" $SRC "'"$SCRATCH"'/demo/main.swift"'
+  swiftc -o "'"$SCRATCH"'/VisualVerify" $SRC "'"$SCRATCH"'/demo/main.swift"'
 ```
 
-Two things that bite:
+Three things that bite:
 
 - **Wrap the compile in `bash -c`.** zsh does not word-split an unquoted `$SRC`,
   so `swiftc $SRC` passes every filename as one argument and fails with
   `error opening input file 'Sources/Tokes/AppDelegate.swift\nSources/...'`.
 - **Exclude `Sources/Tokes/main.swift`** — it's the app's entry point and would
   collide with the harness.
+- **Never name the output binary `Demo`.** APFS is case-insensitive, so it
+  collides with the `demo/` harness directory and the link fails with
+  `errno=21 (Is a directory)` — an error that doesn't name either path.
+  `VisualVerify` above is chosen to collide with nothing. (Its defaults domain
+  is then `~/Library/Preferences/VisualVerify.plist` — see cleanup below.)
 
 Expect deprecation warnings from the app sources; filter with `grep -E "error:"`.
 

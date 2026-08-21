@@ -84,7 +84,7 @@ nothing disables it short of editing `build.sh`.
 
 A separate artifact from the notarized zip above, built from the same source
 with `-DTOKES_APP_STORE`. Read `APP-STORE-COMPLIANCE.md` for the design and
-`APP-STORE-SUBMISSION.md` for what is left to submit — the first explains what
+`.private/APP-STORE-SUBMISSION.md` for what is left to submit — the first explains what
 that flag removes and why, the second carries the current App Store Connect
 state and the blockers no script can supply. The one-time account setup is done
 and recorded in `retired/appstore-account-setup-2026-08-19.md`.

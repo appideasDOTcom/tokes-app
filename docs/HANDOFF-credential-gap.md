@@ -126,6 +126,6 @@ does not have this problem, which is another reason to prefer it over
 - Build 5 is uploaded and audits 32/0. It is fine as a *TestFlight* artifact for
   exercising the UI, but **its behaviour no longer matches the tree** — it
   contains the removed demo mode. Not fit to submit for review.
-- The review notes in `docs/APP-STORE-SUBMISSION.md` are restored to their
+- The review notes in `docs/.private/APP-STORE-SUBMISSION.md` are restored to their
   token-based form and marked BLOCKED. The mechanism they describe is accurate;
   they cannot be finalised until there is a connection path worth documenting.
