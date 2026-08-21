@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ViewInspector
 import XCTest
 
 @testable import Tokes
@@ -7,6 +8,19 @@ import XCTest
 /// Hosting-controller smoke tests: each view builds, lays out, and reports a
 /// sensible fitting size for its state.
 final class ViewSmokeTests: XCTestCase {
+    /// `SettingsView.onAppear` reads the manual-token keychain slot on every
+    /// render, and this suite renders it 38 times. Pointed at the test-only
+    /// service so a suite run never reads the item the installed app owns.
+    static let keychainService = "com.appideas.tokes.tests"
+    /// Same reasoning for the imported-file bookmarks `onAppear` resolves.
+    static let bookmarks = UserDefaults(suiteName: "com.appideas.tokes.tests.viewsmoke")!
+
+    /// Settings pointed at the test-only keychain slot and bookmark domain.
+    private func settingsView() -> SettingsView {
+        SettingsView(onCredentialsChanged: {}, keychainService: Self.keychainService,
+                     bookmarkDefaults: Self.bookmarks)
+    }
+
     private func makeState(withSnapshot: Bool = true, error: String? = nil,
                            withCopilot: Bool = false) -> AppState {
         let state = AppState()
@@ -76,11 +90,58 @@ final class ViewSmokeTests: XCTestCase {
         XCTAssertGreaterThan(view.fittingSize.height, 40)
     }
 
+    /// The banner has to add height, and the old assertion could not see that.
+    ///
+    /// It compared the two *snapshotless* states with a `- 60` tolerance, and
+    /// those two are not comparable: with no snapshot the banner *replaces* the
+    /// "Connecting…" block, so the error state is legitimately 35pt shorter and
+    /// the assertion passed on a number pointing the wrong way. A zero-height
+    /// banner would have passed it too. Compared against a state that keeps its
+    /// limits, the banner is purely additive and a strict inequality holds.
     @MainActor
     func testPopoverViewRendersErrorBanner() {
-        let plain = popover(state: makeState(withSnapshot: false))
-        let withError = popover(state: makeState(withSnapshot: false, error: "Something went wrong"))
-        XCTAssertGreaterThan(withError.fittingSize.height, plain.fittingSize.height - 60)
+        let plain = popover(state: makeState())
+        let withError = popover(state: makeState(error: "Something went wrong"))
+
+        XCTAssertGreaterThan(withError.fittingSize.height, plain.fittingSize.height)
+        // And the text itself is laid out, not clipped to one line.
+        let wrapped = popover(state: makeState(
+            error: String(repeating: "Usage API rate-limited — retrying automatically. ", count: 4)))
+        XCTAssertGreaterThan(wrapped.fittingSize.height, withError.fittingSize.height)
+    }
+
+    /// The other half of that: with nothing to show, the banner (plus its
+    /// Open Settings button) stands in for the "Connecting…" block rather
+    /// than sitting above it. Height comparisons across a swap say nothing —
+    /// that lesson is in this test's history — so the swap is asserted
+    /// structurally.
+    @MainActor
+    func testAnErrorReplacesTheConnectingBlockRatherThanStackingOnIt() throws {
+        let failed = PopoverView(state: makeState(withSnapshot: false, error: "Something went wrong"),
+                                 onHoverChanged: { _ in }, onSettings: {}, onRefresh: {}, onQuit: {})
+
+        XCTAssertThrowsError(try failed.inspect().find(text: "Connecting…"),
+                             "the banner replaces the connecting block")
+        XCTAssertNoThrow(try failed.inspect().find(button: "Open Settings…"),
+                         "a setup failure with nothing polled offers the way in")
+    }
+
+    /// First launch: fewer than three samples draws the "Collecting history…"
+    /// overlay instead of a line. Every other test here seeds 10–20 samples, so
+    /// the state a new user actually sees was never rendered.
+    @MainActor
+    func testTheChartRendersBeforeThereIsHistoryToDraw() {
+        let limit = TestFixtures.limit(id: "session", label: "Session (5 hr)", percent: 24,
+                                       resetsAt: Date().addingTimeInterval(3600), isSession: true)
+        for count in 0...3 {
+            let samples = (0..<count).map {
+                UsageSample(t: Date().addingTimeInterval(Double(-$0) * 60), v: ["session": 12])
+            }
+            let hosting = NSHostingController(rootView: LimitSection(limit: limit, samples: samples)
+                .frame(width: 320))
+            hosting.view.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(hosting.view.fittingSize.height, 60, "\(count) samples")
+        }
     }
 
     @MainActor
@@ -98,7 +159,7 @@ final class ViewSmokeTests: XCTestCase {
 
     @MainActor
     func testSettingsViewLoads() {
-        let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+        let hosting = NSHostingController(rootView: settingsView())
         XCTAssertNotNil(hosting.view)
         XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1)
     }
@@ -118,11 +179,69 @@ final class ViewSmokeTests: XCTestCase {
                 UserDefaults.standard.set(scoped, forKey: SettingsKeys.showScopedWeekly)
                 for option in MenuBarLabel.allCases {
                     UserDefaults.standard.set(option.rawValue, forKey: SettingsKeys.menuBarLabel)
-                    let hosting = NSHostingController(rootView: SettingsView(onCredentialsChanged: {}))
+                    let hosting = NSHostingController(rootView: settingsView())
                     hosting.view.layoutSubtreeIfNeeded()
                     XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
                                    "\(option) / copilot=\(copilot) scoped=\(scoped)")
                 }
+            }
+        }
+    }
+
+    /// Opening Settings must repair a stored credential source this build does
+    /// not ship — the shape a `defaults` domain copied in from the Homebrew
+    /// build has. The normalization ran before this test existed; nothing read
+    /// the result back, so the guard was executed but unproven.
+    @MainActor
+    func testOpeningSettingsRepairsASourceThisBuildDoesNotShip() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.credentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
+        }
+        UserDefaults.standard.set(CredentialSource.claudeCode.rawValue,
+                                  forKey: SettingsKeys.credentialSource)
+        UserDefaults.standard.set(CopilotCredentialSource.editor.rawValue,
+                                  forKey: SettingsKeys.copilotCredentialSource)
+
+        let hosting = NSHostingController(rootView: settingsView())
+        hosting.view.layoutSubtreeIfNeeded()  // fires onAppear
+
+        let claude = UserDefaults.standard.string(forKey: SettingsKeys.credentialSource)
+        let copilot = UserDefaults.standard.string(forKey: SettingsKeys.copilotCredentialSource)
+        #if TOKES_APP_STORE
+            XCTAssertEqual(claude, CredentialSource.importedFile.rawValue,
+                           "the App Store build must not stay pointed at a reader it lacks")
+            XCTAssertEqual(copilot, CopilotCredentialSource.githubApp.rawValue)
+        #else
+            XCTAssertEqual(claude, CredentialSource.claudeCode.rawValue,
+                           "the direct build ships this reader and must keep the choice")
+            XCTAssertEqual(copilot, CopilotCredentialSource.editor.rawValue)
+        #endif
+        // Whatever the build, the stored value names a source it offers.
+        XCTAssertTrue(CredentialSource.available().contains(CredentialSource(rawValue: claude!)!))
+        XCTAssertTrue(CopilotCredentialSource.available()
+            .contains(CopilotCredentialSource(rawValue: copilot!)!))
+    }
+
+    /// Every credential source renders its own controls — the import buttons and
+    /// the imported-path label included. `allCases`, not `available()`: a source
+    /// this build hides must still render if a stale setting names it.
+    @MainActor
+    func testSettingsViewLoadsForEveryCredentialSource() {
+        defer {
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.credentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotCredentialSource)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
+        }
+        UserDefaults.standard.set(true, forKey: SettingsKeys.copilotEnabled)
+        for claude in CredentialSource.allCases {
+            for copilot in CopilotCredentialSource.allCases {
+                UserDefaults.standard.set(claude.rawValue, forKey: SettingsKeys.credentialSource)
+                UserDefaults.standard.set(copilot.rawValue, forKey: SettingsKeys.copilotCredentialSource)
+                let hosting = NSHostingController(rootView: settingsView())
+                hosting.view.layoutSubtreeIfNeeded()
+                XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
+                               "claude=\(claude) copilot=\(copilot)")
             }
         }
     }

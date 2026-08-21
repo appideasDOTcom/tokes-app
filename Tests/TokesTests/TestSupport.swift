@@ -118,7 +118,6 @@ final class MockCredentials: TokenProviding {
     var token = "mock-token"
     var error: Error?
     private(set) var invalidateCount = 0
-
     func accessToken() throws -> String {
         if let error { throw error }
         return token

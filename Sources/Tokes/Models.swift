@@ -8,7 +8,14 @@ enum SettingsKeys {
     static let credentialSource = "credentialSource"
     static let copilotEnabled = "copilotEnabled"
     static let copilotCredentialSource = "copilotCredentialSource"
+    static let copilotPlan = "copilotPlan"
+    static let copilotCustomAllowance = "copilotCustomAllowance"
     static let showScopedWeekly = "showScopedWeekly"
+    /// Security-scoped bookmarks for user-imported credentials files.
+    static let claudeCredentialFile = "claudeCredentialFileBookmark"
+    static let copilotCredentialFile = "copilotCredentialFileBookmark"
+    /// Set after the first launch ever; gates the one-time welcome behavior.
+    static let didCompleteFirstRun = "didCompleteFirstRun"
 
     /// Pre-picker on/off toggle for the menu bar text, migrated to `menuBarLabel`.
     static let legacyShowLabel = "showLabel"
@@ -37,13 +44,21 @@ enum MenuBarLabel: String, CaseIterable {
 
     /// The limit this option names, or nil when the snapshot doesn't report it
     /// (Copilot off, plan without a model-scoped weekly, nothing polled yet).
+    ///
+    /// A plan can meter more than one model, so `weeklyScoped` picks the
+    /// *highest* of the scoped buckets rather than the first one the API
+    /// listed. Taking the first would make the menu bar number depend on
+    /// response ordering — which `UsageClient.mapLimits` does not guarantee,
+    /// since every scoped bucket sorts to the same rank — and would silently
+    /// hide the model the user is closest to exhausting, which is the one
+    /// question this readout exists to answer.
     func limit(in limits: [UsageLimit]) -> UsageLimit? {
         switch self {
         case .off: return nil
         case .highest: return limits.max { $0.percent < $1.percent }
         case .session: return limits.first { $0.id == "session" }
         case .weeklyAll: return limits.first { $0.id == "weekly_all" }
-        case .weeklyScoped: return limits.first { $0.isScopedWeekly }
+        case .weeklyScoped: return limits.filter(\.isScopedWeekly).max { $0.percent < $1.percent }
         case .copilot: return limits.first { $0.provider == .copilot }
         }
     }
@@ -70,16 +85,148 @@ enum MenuBarLabel: String, CaseIterable {
     }
 }
 
-/// Source of the OAuth token: Claude Code's stored credentials or a manually pasted token.
-enum CredentialSource: String {
+/// Where the Claude OAuth token comes from.
+///
+/// `.claudeCode` reads the credential store Claude Code owns, so it is compiled
+/// out of the App Store build entirely — see `Capabilities`. The other two are
+/// offered by every build: a file the user picks in an open panel is inside the
+/// sandbox by macOS' own definition, and the manual token lives in Tokes' own
+/// keychain item.
+enum CredentialSource: String, CaseIterable {
     case claudeCode
+    case importedFile
     case manual
+
+    /// Radio-button title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .claudeCode: return "Use Claude Code sign-in (automatic)"
+        case .importedFile: return "Import a Claude Code credentials file"
+        case .manual: return "Manual OAuth token"
+        }
+    }
+
+    /// The sources this build offers, most automatic first.
+    static func available(for distribution: Distribution = .current) -> [CredentialSource] {
+        switch distribution {
+        case .direct: return [.claudeCode, .importedFile, .manual]
+        case .appStore: return [.importedFile, .manual]
+        }
+    }
+
+    /// First-run selection for this build.
+    static func defaultSource(for distribution: Distribution = .current) -> CredentialSource {
+        available(for: distribution)[0]
+    }
+
+    /// Falls back to this build's default when the stored value names a source
+    /// this build doesn't offer.
+    func normalized(for distribution: Distribution = .current) -> CredentialSource {
+        Self.available(for: distribution).contains(self)
+            ? self : Self.defaultSource(for: distribution)
+    }
+
+    /// Reads the stored selection, normalized to something this build offers.
+    static func current(in defaults: UserDefaults = .standard) -> CredentialSource {
+        (CredentialSource(rawValue: defaults.string(forKey: SettingsKeys.credentialSource) ?? "")
+            ?? defaultSource()).normalized()
+    }
 }
 
-/// Source of the GitHub token: editor Copilot sign-in / gh CLI, or a manually pasted token.
-enum CopilotCredentialSource: String {
+/// Where the GitHub token comes from. `.editor` reads the Copilot plugin's own
+/// config and the `gh` CLI, so it is compiled out of the App Store build for the
+/// same reason `CredentialSource.claudeCode` is. `.githubApp` is the sanctioned
+/// path — the user signs in through GitHub's device flow, and usage comes from
+/// the documented billing report endpoints — so every build offers it.
+enum CopilotCredentialSource: String, CaseIterable {
+    case githubApp
     case editor
+    case importedFile
     case manual
+
+    /// Radio-button title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .githubApp: return "Sign in with GitHub (recommended)"
+        case .editor: return "Use editor sign-in / gh CLI (automatic)"
+        case .importedFile: return "Import a Copilot config file"
+        case .manual: return "Manual GitHub token"
+        }
+    }
+
+    /// The sources this build offers, recommended first.
+    static func available(for distribution: Distribution = .current) -> [CopilotCredentialSource] {
+        switch distribution {
+        case .direct: return [.githubApp, .editor, .importedFile, .manual]
+        case .appStore: return [.githubApp, .importedFile, .manual]
+        }
+    }
+
+    /// First-run selection for this build. The App Store build starts on the
+    /// sanctioned sign-in; the direct build keeps `.editor`, which works with
+    /// no setup for the users who already have it — flipping their default to
+    /// a source that needs a sign-in would break working installs.
+    static func defaultSource(for distribution: Distribution = .current) -> CopilotCredentialSource {
+        switch distribution {
+        case .direct: return .editor
+        case .appStore: return .githubApp
+        }
+    }
+
+    /// Falls back to this build's default when the stored value names a source
+    /// this build doesn't offer.
+    func normalized(for distribution: Distribution = .current) -> CopilotCredentialSource {
+        Self.available(for: distribution).contains(self)
+            ? self : Self.defaultSource(for: distribution)
+    }
+
+    /// Reads the stored selection, normalized to something this build offers.
+    static func current(in defaults: UserDefaults = .standard) -> CopilotCredentialSource {
+        (CopilotCredentialSource(rawValue: defaults.string(forKey: SettingsKeys.copilotCredentialSource) ?? "")
+            ?? defaultSource()).normalized()
+    }
+}
+
+/// The user's Copilot plan, which decides the included monthly allowance the
+/// billing reports are measured against. GitHub's usage endpoints report raw
+/// quantities only — no entitlement — and the plan itself is not queryable, so
+/// the user picks it (with a custom escape hatch for anything the table
+/// doesn't cover). Allowances are the documented plan totals.
+enum CopilotPlan: String, CaseIterable {
+    case pro
+    case proPlus
+    case max
+    case custom
+
+    /// Picker title shown in Settings.
+    var displayName: String {
+        switch self {
+        case .pro: return "Copilot Pro"
+        case .proPlus: return "Copilot Pro+"
+        case .max: return "Copilot Max"
+        case .custom: return "Custom allowance"
+        }
+    }
+
+    /// The included monthly allowance on the given billing meter. Legacy
+    /// premium-request billing survives only on grandfathered annual Pro/Pro+
+    /// plans, so `.max` there falls back to the Pro+ figure — anyone actually
+    /// in that corner is a `.custom` user.
+    func allowance(mode: CopilotBillingMode, custom: Double) -> Double {
+        switch (self, mode) {
+        case (.custom, _): return custom
+        case (.pro, .aiCredits): return 1500
+        case (.proPlus, .aiCredits): return 7000
+        case (.max, .aiCredits): return 20000
+        case (.pro, .premiumRequests): return 300
+        case (.proPlus, .premiumRequests), (.max, .premiumRequests): return 1500
+        }
+    }
+
+    /// Reads the stored selection, falling back to Pro.
+    static func current(in defaults: UserDefaults = .standard) -> CopilotPlan {
+        CopilotPlan(rawValue: defaults.string(forKey: SettingsKeys.copilotPlan) ?? "") ?? .pro
+    }
 }
 
 /// The service a usage limit belongs to; drives grouping and visual separation.
@@ -112,12 +259,23 @@ struct UsageLimit: Identifiable, Equatable {
     let detail: String?
 
     /// Creates a limit; provider defaults to Claude and detail to none.
+    ///
+    /// `percent` is clamped to 0…100 here, which is the only place it happens.
+    /// Every renderer used to decide for itself: `makeIcon` clamped its bar
+    /// heights, `makeTitle` did not, and `PopoverView` did not either — so one
+    /// server answer of 420 drew a full red bar beside the text " 420%" in the
+    /// menu bar and "420%" one click away in the popover. Clamping at the only
+    /// point a limit can be constructed makes "a percent is 0…100" an invariant
+    /// of the type rather than a rule each display has to remember, and it
+    /// covers producers that do not exist yet. The raw figure is not preserved
+    /// because nothing shows it: Copilot's exact counts reach the user through
+    /// `detail`, which carries credits, not a percentage.
     init(id: String, label: String, percent: Double, severity: String,
          resetsAt: Date?, isSession: Bool,
          provider: UsageProvider = .claude, detail: String? = nil) {
         self.id = id
         self.label = label
-        self.percent = percent
+        self.percent = max(0, min(100, percent))
         self.severity = severity
         self.resetsAt = resetsAt
         self.isSession = isSession
@@ -144,6 +302,14 @@ struct UsageSnapshot: Equatable {
 }
 
 /// A single point of sampled history: limit id -> percent
+///
+/// Keying on the limit id means a model-scoped bucket's history is keyed on the
+/// model's *display name* (`weekly_scoped:Fable`), so renaming a model starts a
+/// new series and the old one ages out unread. That is deliberate: a renamed
+/// model is a different bucket as far as the API is concerned, two scoped
+/// buckets must not collide into one series, and the chart says
+/// "Collecting history…" rather than pretending the old points belong to the
+/// new model. Pinned by `UsageSampleKeyingTests`.
 struct UsageSample: Codable {
     let t: Date
     let v: [String: Double]

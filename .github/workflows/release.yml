@@ -9,7 +9,10 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    # macos-26 (Xcode 26+) is required: the app icon is an Icon Composer
+    # package and only Xcode 26's actool can compile a .icon. On an older
+    # image actool fails and build.sh aborts, so releases would not ship.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -21,8 +24,19 @@ jobs:
             exit 1
           }
 
-      - name: Run tests
-        run: swift test
+      # Both configurations: the App Store build compiles with -DTOKES_APP_STORE,
+      # which removes whole functions, so the default configuration alone leaves
+      # half the code unbuilt.
+      - name: Run tests (both build configurations)
+        run: ./scripts/test.sh
+
+      # The compliance gate is a build artifact, so it regresses like one. This
+      # catches an out-of-container credential reader creeping back into the
+      # App Store build before a submission does.
+      - name: Audit the App Store build
+        run: |
+          ./scripts/build.sh --app-store
+          ./scripts/verify-appstore.sh --static-only
 
       # Ad-hoc signed for now. When Developer ID signing lands, import the
       # cert from repo secrets here and pass --sign/--notarize to release.sh.

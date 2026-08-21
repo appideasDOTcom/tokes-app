@@ -2,12 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Appends to /tmp/tokes-debug.log when `defaults write com.appideas.tokes
-/// debugLogging -bool true` is set. Unified log redacts our messages as
-/// <private>, so a plain file is the practical channel.
+/// Appends to a log file when `defaults write com.appideas.tokes debugLogging
+/// -bool true` is set. Unified log redacts our messages as <private>, so a plain
+/// file is the practical channel.
+///
+/// The destination is /tmp for the direct build; the sandbox denies writes there,
+/// so the App Store build logs inside its container — see `Capabilities`.
 enum DebugLog {
     /// Log destination; overridable in tests.
-    static var fileURL = URL(fileURLWithPath: "/tmp/tokes-debug.log")
+    static var fileURL = Capabilities.debugLogURL()
 
     /// Appends a timestamped line to the log file if debug logging is enabled.
     static func log(_ message: String) {
@@ -29,7 +32,9 @@ enum DebugLog {
 final class StatusItemController: NSObject {
     private let state: AppState
     private let poller: UsagePoller
-    private let statusItem: NSStatusItem
+    /// Internal (not private) so tests can reach the real button and remove
+    /// the item from the bar when they finish.
+    let statusItem: NSStatusItem
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
@@ -88,31 +93,60 @@ final class StatusItemController: NSObject {
 
     // MARK: - Menu bar rendering
 
+    /// Everything the menu bar draws for a snapshot, computed with no AppKit
+    /// involved so the composition can be asserted directly. `makeIcon` and
+    /// `makeTitle` were already testable in isolation; this is the part that
+    /// decides *what they are given*, which is where the scoped-weekly setting
+    /// actually takes effect.
+    struct MenuBarContent: Equatable {
+        /// Limits to draw, after the scoped-weekly setting has filtered them.
+        let limits: [UsageLimit]
+        /// Bar slots the Claude section reserves, so the item's width does not
+        /// jitter as buckets appear. Moves with the same setting that filters.
+        let claudeTracks: Int
+        let toolTip: String
+    }
+
+    /// Resolves a snapshot and the scoped-weekly setting into what the button
+    /// should show.
+    static func content(for snapshot: UsageSnapshot?, showScopedWeekly: Bool) -> MenuBarContent {
+        let limits = (snapshot?.limits ?? []).filter { showScopedWeekly || !$0.isScopedWeekly }
+        let toolTip: String
+        if limits.isEmpty {
+            toolTip = "Tokes — waiting for usage data"
+        } else {
+            let prefix = limits.contains { $0.provider == .copilot } ? "Usage — " : "Claude usage — "
+            toolTip = prefix + limits
+                .map { "\($0.label): \(Int($0.percent.rounded()))%" }
+                .joined(separator: " · ")
+        }
+        return MenuBarContent(limits: limits,
+                              claudeTracks: showScopedWeekly ? 3 : 2,
+                              toolTip: toolTip)
+    }
+
+    /// Reads the scoped-weekly setting, defaulting to on when never set.
+    static func showScopedWeekly(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
+    }
+
     /// Redraws the icon, optional percent label, and tooltip from a snapshot.
     /// Label color signals state: red when a limit is exhausted (blocking
     /// further queries), orange while polls are failing (numbers may be
     /// stale), normal otherwise.
     private func updateButton(with snapshot: UsageSnapshot?, hasError: Bool) {
         guard let button = statusItem.button else { return }
-        let showScoped = UserDefaults.standard.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
-        let limits = (snapshot?.limits ?? []).filter { showScoped || !$0.isScopedWeekly }
-        button.image = Self.makeIcon(limits: limits, claudeTracks: showScoped ? 3 : 2)
+        let content = Self.content(for: snapshot, showScopedWeekly: Self.showScopedWeekly())
+        button.image = Self.makeIcon(limits: content.limits, claudeTracks: content.claudeTracks)
         button.imagePosition = .imageLeading
 
-        if let title = Self.makeTitle(limits: limits, selection: .current(), hasError: hasError) {
+        if let title = Self.makeTitle(limits: content.limits, selection: .current(),
+                                      hasError: hasError) {
             button.attributedTitle = title
         } else {
             button.title = ""
         }
-
-        if limits.isEmpty {
-            button.toolTip = "Tokes — waiting for usage data"
-        } else {
-            let prefix = limits.contains { $0.provider == .copilot } ? "Usage — " : "Claude usage — "
-            button.toolTip = prefix + limits
-                .map { "\($0.label): \(Int($0.percent.rounded()))%" }
-                .joined(separator: " · ")
-        }
+        button.toolTip = content.toolTip
     }
 
     /// The percent text beside the icon for the selected measurement, or nil
@@ -123,6 +157,9 @@ final class StatusItemController: NSObject {
     static func makeTitle(limits: [UsageLimit], selection: MenuBarLabel,
                           hasError: Bool) -> NSAttributedString? {
         guard let shown = selection.limit(in: limits) else { return nil }
+        // No clamp here: `UsageLimit.init` guarantees 0…100. This used to clamp
+        // locally, which fixed the menu bar and left `PopoverView` printing the
+        // raw figure one click away.
         let labelColor: NSColor = shown.percent >= 100 ? .systemRed
             : hasError ? .systemOrange
             : .labelColor
@@ -194,6 +231,7 @@ final class StatusItemController: NSObject {
     // the tracking area's messages would be dropped silently.
     /// Pointer entered the status item: open the popover after a short delay.
     @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        DebugLog.log("Tokes: pointer entered status item")
         hoverInButton = true
         hideWork?.cancel()
         guard !popover.isShown else { return }
@@ -243,6 +281,7 @@ final class StatusItemController: NSObject {
     /// Shows the popover under the status item, refreshing stale data first.
     private func showPopover() {
         guard let button = statusItem.button, !popover.isShown else { return }
+        DebugLog.log("Tokes: showing popover")
         poller.refreshIfStale()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         repositionPopoverWindow()
@@ -258,16 +297,27 @@ final class StatusItemController: NSObject {
         guard let window = popover.contentViewController?.view.window,
               let buttonWindow = statusItem.button?.window,
               let screen = buttonWindow.screen ?? NSScreen.main else { return }
-        let buttonFrame = buttonWindow.frame
-        var frame = window.frame
-        let visible = screen.visibleFrame
-        frame.origin.y = buttonFrame.minY - frame.height
-        frame.origin.x = min(
-            max(buttonFrame.midX - frame.width / 2, visible.minX + 8),
-            screen.frame.maxX - frame.width - 8)
+        let frame = Self.popoverFrame(current: window.frame,
+                                      buttonWindowFrame: buttonWindow.frame,
+                                      screenFrame: screen.frame,
+                                      visibleFrame: screen.visibleFrame)
         if window.frame != frame {
             window.setFrame(frame, display: true)
         }
+    }
+
+    /// Where the popover window belongs: centered under the status item, top
+    /// flush with the bottom of the menu bar, clamped to the screen with an
+    /// 8pt margin on either side. Pure geometry, so the macOS 26 workaround
+    /// above is assertable without putting a popover on screen.
+    static func popoverFrame(current: NSRect, buttonWindowFrame: NSRect,
+                             screenFrame: NSRect, visibleFrame: NSRect) -> NSRect {
+        var frame = current
+        frame.origin.y = buttonWindowFrame.minY - frame.height
+        frame.origin.x = min(
+            max(buttonWindowFrame.midX - frame.width / 2, visibleFrame.minX + 8),
+            screenFrame.maxX - frame.width - 8)
+        return frame
     }
 
     /// Closes the popover, removes click monitors, and hands focus back.
@@ -288,6 +338,7 @@ final class StatusItemController: NSObject {
 
     /// Left click pins/unpins the popover; right click shows the context menu.
     @objc private func statusButtonClicked() {
+        DebugLog.log("Tokes: status item clicked (event: \(NSApp.currentEvent?.type.rawValue.description ?? "none"))")
         // currentEvent is nil for accessibility (AXPress) activation;
         // treat that like a left click.
         if NSApp.currentEvent?.type == .rightMouseUp {
@@ -323,7 +374,9 @@ final class StatusItemController: NSObject {
             guard let self else { return event }
             let popoverWindow = self.popover.contentViewController?.view.window
             let statusWindow = self.statusItem.button?.window
-            if event.window != popoverWindow && event.window != statusWindow {
+            if Self.isOutsideClick(eventWindow: event.window,
+                                   popoverWindow: popoverWindow,
+                                   statusWindow: statusWindow) {
                 self.closePopover()
             }
             return event
@@ -337,10 +390,20 @@ final class StatusItemController: NSObject {
         clickMonitors.removeAll()
     }
 
+    /// Whether a monitored click landed outside both the popover and the
+    /// status item — the condition that closes a pinned popover. A nil event
+    /// window (a click in another app, which is all the global monitor ever
+    /// delivers) is outside by definition.
+    static func isOutsideClick(eventWindow: NSWindow?, popoverWindow: NSWindow?,
+                               statusWindow: NSWindow?) -> Bool {
+        eventWindow != popoverWindow && eventWindow != statusWindow
+    }
+
     // MARK: - Context menu
 
-    /// Shows the right-click menu (Refresh / Settings / Quit) via a transient statusItem.menu.
-    private func showContextMenu() {
+    /// The right-click menu: Refresh / Settings / Quit. Built apart from
+    /// `showContextMenu` so its wiring is assertable without popping a menu.
+    func contextMenu() -> NSMenu {
         let menu = NSMenu()
         let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refreshAction), keyEquivalent: "")
         refresh.target = self
@@ -350,8 +413,12 @@ final class StatusItemController: NSObject {
         menu.addItem(settings)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Tokes", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        return menu
+    }
 
-        statusItem.menu = menu
+    /// Shows the right-click menu via a transient statusItem.menu.
+    private func showContextMenu() {
+        statusItem.menu = contextMenu()
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
     }

@@ -62,6 +62,14 @@ struct CopilotClient {
         } else if let entitlement = quota.entitlement, entitlement > 0,
                   let used = quota.credits_used {
             percent = max(0, min(100, used / entitlement * 100))
+        } else if quota.entitlement == 0 {
+            // A real plan shape — some org seats and free accounts carry no
+            // premium-request allowance at all. Nothing is used because
+            // nothing can be, so it reads 0% with a detail line saying why.
+            // Before this it fell through to `decode`, and the user saw
+            // "Could not parse Copilot response", which blames Tokes for the
+            // plan they are on.
+            percent = 0
         } else {
             throw CopilotError.decode("no usable quota fields in response")
         }
@@ -80,6 +88,7 @@ struct CopilotClient {
     /// "37 of 7,000 credits used", or a plan note when the quota is unlimited.
     private static func detail(for quota: APIQuota) -> String? {
         if quota.unlimited == true { return "Unlimited plan" }
+        if quota.entitlement == 0 { return "Plan includes no premium requests" }
         guard let entitlement = quota.entitlement, let used = quota.credits_used else { return nil }
         let fmt = NumberFormatter()
         fmt.locale = Locale(identifier: "en_US")

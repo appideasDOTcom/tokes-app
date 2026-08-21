@@ -1,0 +1,37 @@
+name: CI
+
+# The release workflow runs on tags only, which meant the suite and the
+# compliance audit ran for the first time *after* a version had been tagged —
+# at which point fixing anything they caught needs a new tag. This runs the same
+# two gates on the way in.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+# A newer push to the same branch makes an in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macos-26 for the same reason release.yml pins it: only Xcode 26's actool
+    # can compile the Icon Composer package, and the App Store build below
+    # invokes it.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both configurations: -DTOKES_APP_STORE removes whole functions, so the
+      # default configuration alone leaves that half unbuilt.
+      - name: Run tests (both build configurations)
+        run: ./scripts/test.sh
+
+      # The compliance boundary is a build artifact, so it regresses like one.
+      # --static-only because the runtime section needs to launch the app, which
+      # a CI runner has no session for.
+      - name: Audit the App Store build
+        run: |
+          ./scripts/build.sh --app-store
+          ./scripts/verify-appstore.sh --static-only

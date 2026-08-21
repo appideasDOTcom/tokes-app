@@ -10,7 +10,16 @@ enum UsageError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unauthorized:
+            // Flavor-gated deliberately. The App Store build cannot read Claude
+            // Code's credentials at all — that path is compiled out — so telling
+            // its user to "open Claude Code" is advice they cannot act on, and
+            // it is the message most likely to be seen: a pasted OAuth token
+            // expires in hours and this build has no refresh path.
+            #if TOKES_APP_STORE
+            return "Not authorized — the token may have expired. Paste a current one in Settings."
+            #else
             return "Not authorized — open Claude Code to refresh your login, or set a token in Settings."
+            #endif
         case .rateLimited:
             return "Usage API rate-limited — retrying automatically."
         case .http(let code):
@@ -103,13 +112,30 @@ struct UsageClient {
                                          severity: "normal", resetsAt: APIDate.parse(w.resets_at), isSession: false))
             }
         }
+        // Two entries claiming one id would reach `ForEach` over an
+        // `Identifiable` whose id repeats — SwiftUI's documented undefined
+        // behavior — and `UsageSample.v` is a dictionary, so history would keep
+        // only whichever came last. Keep the highest, which is the same rule
+        // `MenuBarLabel.weeklyScoped` uses: when two numbers compete for one
+        // slot, never hide the one nearest exhaustion.
+        var highest: [String: UsageLimit] = [:]
+        for limit in result {
+            if let existing = highest[limit.id], existing.percent >= limit.percent { continue }
+            highest[limit.id] = limit
+        }
+        var seen = Set<String>()
+        let deduped = result.compactMap { limit -> UsageLimit? in
+            guard seen.insert(limit.id).inserted else { return nil }
+            return highest[limit.id]
+        }
+
         // Stable display order: session, weekly_all, then scoped buckets.
         let rank: (UsageLimit) -> Int = { l in
             if l.id == "session" { return 0 }
             if l.id == "weekly_all" { return 1 }
             return 2
         }
-        return result.sorted { rank($0) < rank($1) }
+        return deduped.sorted { rank($0) < rank($1) }
     }
 }
 

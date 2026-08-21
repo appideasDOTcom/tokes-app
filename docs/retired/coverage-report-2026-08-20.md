@@ -1,0 +1,283 @@
+# Coverage report — Tokes
+
+Date: 2026-08-20 · **re-measured at `8e04712`** (clean tree)
+
+A standalone re-measurement and fresh analysis. The predecessor,
+`retired/coverage-report-2026-08-19.md`, is the submission baseline plus the
+work log that closed it out; this report is the current state, derived from
+scratch — every number is from runs made today, and every uncovered region was
+re-read in source rather than carried over.
+
+> **RETIRED 2026-08-20 (evening) — the numbers are superseded; the method is not.**
+> Measured at `8e04712`, when the suite was 319 direct / 316 App Store. The
+> onboarding work landed the same day and the suite is now **377 direct
+> (2 skipped) / 374 App Store**, across code this report never saw
+> (`GitHubAppAuth`, `CopilotBillingClient`, `GitHubConnectModel`,
+> `ClaudeCodeExport`, first-run). Do not quote its percentages as current.
+> **§3.1 is still the reference for llvm-cov's provable false zeros** — that
+> analysis is about the tool, not about this commit — and the procedure lives
+> in `scripts/coverage-regions.py`'s docstring. Re-derive before citing a number.
+
+> **Snapshot in time.** This report is kept in `docs/` as the current reference,
+> but it describes one commit and does not update itself. Re-derive it with two
+> `swift test --enable-code-coverage` runs plus `scripts/coverage-regions.py`
+> rather than trusting these figures against a moved tree.
+>
+> **Second measurement.** This report was first written at `48154e6`. The two
+> commits after it — rounds 4 and 5 of the testing analysis, the latter carrying
+> the rate floor on `refreshIfStale` and the percent clamp moved into
+> `UsageLimit.init` — changed the numbers, so every figure below was re-derived
+> at `8e04712`: two new `UsagePoller` regions, both covered, and four new tests. The residual is
+> region-for-region *identical* to the first measurement, so §3's analysis is
+> re-verified rather than rewritten. One §4 claim was found to be false and is
+> corrected there.
+
+**Method.** `swift test --enable-code-coverage` in both configurations
+(default and `-DTOKES_APP_STORE`), `llvm-cov export` over the whole test
+binary (never a per-file export — it silently drops records), maximum
+execution count taken across function records per region, union taken per
+region across the two configurations. The extraction is checked in as
+`scripts/coverage-regions.py`, so a future re-measurement is two `swift test`
+runs plus that script. Swift emits no branch data; *region*
+coverage is used throughout because it is the harshest metric available —
+llvm-cov's line metric flatters SwiftUI and is not quoted here.
+
+One finding is new to this measurement and changes how the residual should be
+read: **some "uncovered" regions are provably executed** (§3.1). The 164
+uncovered count is therefore an upper bound on genuinely unexecuted code.
+
+## 1. Topline
+
+| Metric | Direct build | App Store build | Union |
+|---|---|---|---|
+| Tests | **319**, 2 skipped, 0 failures | **316**, 0 failures | — |
+| Regions | **82.66%** (796/963) | **85.81%** (792/923) | **82.97%** (799/963) |
+| Union excl. `StatusItemController` + `SettingsView` + `main.swift` | — | — | **89.61%** (578/645) |
+| App Store compliance audit | — | **38 passed, 0 failed** | — |
+
+- **The 2 skips are deliberate self-skips**, not environment flakes: the two
+  App-Store-only connection-test arms skip themselves in the direct build,
+  because running them there would read Claude Code's and the Copilot
+  plugin's real stores.
+- The App Store column reads higher because `-DTOKES_APP_STORE` removes the
+  foreign-credential readers a test must never execute (§3.3). That is the
+  flag working, not extra testing.
+- Drift is fully accounted for. From the 2026-08-19 §11 baseline, union went
+  83.02% → 82.93% at `48154e6`: exactly the three permanent `DebugLog` lines
+  added to `StatusItemController`, no test changed. From there to `8e04712` it
+  went 82.93% → 82.97%: the rate floor added to `UsagePoller.refreshIfStale`
+  contributes **2 new regions, both covered**, and nothing else moved. Total
+  regions 961 → 963, covered 797 → 799, **uncovered unchanged at 164**.
+- The audit's three warnings are all expected in a local run: no provisioning
+  profile (only required to upload), and two notes about the operator's own
+  running Tokes instance, which the auditor deliberately leaves alone.
+
+## 2. By file
+
+Union figures; the App Store denominators differ where the flag compiles
+readers out. Sorted by uncovered regions — the quantity that matters.
+
+| File | Union | Direct | App Store | Miss (union) |
+|---|---|---|---|---|
+| `StatusItemController.swift` | 57.14% (76/133) | 57.14% | 57.14% | **57** |
+| `Views/SettingsView.swift` | 80.56% (145/180) | 79.44% | 81.46% | **35** |
+| `CredentialsProvider.swift` | 67.69% (44/65) | 67.69% | 95.56% (43/45) | **21** |
+| `CopilotCredentialsProvider.swift` | 74.14% (43/58) | 74.14% | 95.00% (38/40) | **15** |
+| `Distribution.swift` | 78.57% (22/28) | 75.00% | 75.00% | 6 |
+| `ImportedCredentialFile.swift` | 91.67% (55/60) | 91.67% | 91.67% | 5 |
+| `main.swift` | 0.00% (0/5) | 0.00% | 0.00% | 5 |
+| `AppDelegate.swift` | 63.64% (7/11) | 63.64% | 63.64% | 4 |
+| `HistoryStore.swift` | 81.82% (18/22) | 81.82% | 81.82% | 4 |
+| `CopilotClient.swift` | 93.62% (44/47) | 93.62% | 93.62% | 3 |
+| `Models.swift` | 96.77% (90/93) | 96.77% | 96.77% | 3 |
+| `UsageClient.swift` | 97.22% (70/72) | 97.22% | 97.22% | 2 |
+| `UsagePoller.swift` | 97.98% (97/99) | 97.98% | 97.98% | 2 |
+| `Views/PopoverView.swift` | 98.15% (53/54) | 98.15% | 98.15% | 1 |
+| `Views/UsageChart.swift` | 96.88% (31/32) | 96.88% | 96.88% | 1 |
+| `Inspection.swift` | 100% (4/4) | 100% | 100% | 0 |
+
+## 3. Every uncovered region, accounted for
+
+164 union-uncovered regions. Each was resolved to file:line:column and read
+in source. They fall into six categories; the counts are exact and sum to 164.
+The defense for each category is stated once, concisely.
+
+Re-verified at `8e04712`: the uncovered set is **region-for-region identical**
+to the `48154e6` measurement — same files, same lines, same columns, same
+per-file counts (57 / 35 / 21 / 15 / 6 / 5 / 5 / 4 / 4 / 3 / 3 / 2 / 2 / 1 / 1).
+The two `UsagePoller` misses are still `stamp(nil)` at `:233` and
+`oldest ?? now()` at `:287`; the rate floor added to `refreshIfStale` is fully
+covered. Nothing below needed rewriting.
+
+### 3.1 Measured false zeros — proven executed (18)
+
+Not untested code; untestable *accounting*. Two mechanisms, both verified
+directly this run:
+
+- **`AppDelegate.swift:31`, the migration ternary's false arm (1).**
+  `testMigrationOfTheOffToggleLeavesTheLabelOff` drives `wasShowing == false`
+  and asserts the exact value only that arm can produce — and passes — yet
+  `llvm-cov show --show-regions` still prints `^0` on the arm while the line
+  count reads 2. Swift mis-attributes ternary-arm counters inside call
+  arguments.
+- **Property-initializer records (17).** Every `@State`/`@AppStorage`
+  default expression in `SettingsView` (15), its `Inspection` hook, and
+  `PopoverView`'s `@AppStorage` default live in standalone `…vpfi` function
+  records that never tick — even though the interaction tests construct
+  these views dozens of times per run and later assert state that *starts*
+  from those defaults. The expressions execute; the records don't count.
+
+**Defense:** the behavior is asserted elsewhere and the execution is
+demonstrable; only the counter is wrong.
+
+### 3.2 Needs a shown popover, app activation, or real OS events (57 — all of `StatusItemController`'s misses)
+
+The hover/pin state machine, `showPopover`/`closePopover`,
+`repositionPopoverWindow`, `statusButtonClicked`, the global/local click
+monitors, `openSettings`, and the context-menu presentation — plus a few
+defensive guards inside functions that *are* covered (weak-self,
+no-button-on-a-headless-runner, a registered-default `?? true`).
+
+**Defense:** executing these from `swift test` means showing a popover,
+activating the app, or synthesizing out-of-process mouse events — all of
+which raise windows or steal focus, banned on this machine (parallel agent
+sessions). The decision logic is extracted and unit-tested as pure functions
+(`popoverFrame` with both edge clamps, `isOutsideClick` all four arms,
+`contextMenu()` wiring, `MenuBarContent`), the Combine subscriptions are
+driven against a real `NSStatusItem` in `StatusItemControllerLiveTests`, and
+the full composition — real clicks, real popover, AX-verified content — is
+exercised on demand by `scripts/e2e-smoke.sh`, deliberately outside the
+suite.
+
+### 3.3 Forbidden by policy (42)
+
+- **The direct build's foreign-store readers (32).**
+  `loadClaudeCodeToken`, `securityCLIFallback`, the editor-config and
+  `gh` CLI Copilot chain. A test process must never read another app's
+  credential store — the repo rule, and the same acts Guideline 2.5.2
+  forbids the sandboxed build. The App Store flavor compiles them out
+  entirely, which is why its provider files sit at ~95%.
+- **The `case .claudeCode` / `case .editor` dispatch arms (2).** Dual
+  defense: in the direct build they *are* the forbidden readers above; in
+  the App Store build they are `sourceUnavailable` throws documented
+  unreachable — `current(in:)` normalizes the source away before dispatch,
+  and the normalization is itself tested.
+- **`SMAppService` register/unregister bodies (6).** Behind the
+  launch-at-login seam; executing them would mutate the operator's real
+  login items. The seam, including its failure re-read, is tested.
+- **The two direct-only Test Connection arms (2)** that call the forbidden
+  readers. Their App Store counterparts (the `sourceUnavailable` arms) are
+  tested — those are the two deliberate skips in §1.
+
+### 3.4 Modal and process lifecycle (20)
+
+`main.swift` (5), `applicationDidFinishLaunching` / `WillTerminate` (3),
+`runImportPanel` (4), and the Choose File… button closure plus the error
+`Text` its `.failed` arm populates (8).
+
+**Defense:** `NSOpenPanel.runModal` blocks on the out-of-process powerbox
+and the app entry point cannot run inside a test process. Everything after
+each modal returns is extracted and tested (`importOutcome`, `forget`); the
+launch hook's interesting call, `SandboxAudit.mismatchDescription`, is
+audited on the real bundle instead (§3.6).
+
+### 3.5 Defensive code behind a stated invariant (22)
+
+Each one names its invariant; none is reachable without breaking it.
+
+| Regions | What | Why it cannot fire |
+|---|---|---|
+| 2 | non-HTTP response guards (`UsageClient:41`, `CopilotClient:38`) | URLSession cannot deliver a non-`HTTPURLResponse` for an https URL |
+| 2 | `NumberFormatter` fallbacks (`CopilotClient:97–98`) | the formatter does not fail for finite doubles |
+| 3 | `HistoryStore` UTF-8 guards | Swift `String` → UTF-8 cannot fail |
+| 2 | `?? "imported file"` (`CredentialsProvider:130`, sibling) | a successful `read()` implies a stored bookmark, which implies `displayPath` |
+| 3 | `Models` `?? ""` missing-key fallbacks | `registerDefaults` seeds all three keys at launch; the fallback resolves to the registered default anyway |
+| 3 | `Distribution` `return nil` paths (`:96–106`) | require an unsigned or unreadable code signature |
+| 1 | `Distribution.isSandboxed` entitlement arm (`:88`) | non-nil only inside a genuinely sandboxed signed process — the real bundle, which the audit launches and asserts (`sandboxed=true`, this run) |
+| 2 | `flavorMatchesRuntime` / `mismatchDescription` | the interesting arm requires a mis-built artifact; in-process it is a tautology. The audit checks the real bundle ("no build/runtime flavor mismatch", this run) |
+| 2 | `UsagePoller` `stamp(nil)` and `oldest ?? now()` | every caller passes a non-nil date; a success always records a fetch time |
+| 1 | `?? "dev"` version fallback (`SettingsView:154`) | fires only outside a bundle with a version string |
+| 1 | `RealHome` getpwuid fallback | `getpwuid` succeeds for any real uid |
+
+### 3.6 Defaults nothing takes (5)
+
+`SettingsView`'s `keychainService` / `bookmarkDefaults`, `UsageClient`'s
+`= .shared`, and `HistoryStore`'s default directory are injection seams whose
+*overriding is the point*: evaluating them from a test would bind the suite
+to the real keychain slot, real standard defaults, the real network stack,
+and real Application Support — the exact things the test rules forbid. The
+fifth, `UsageChart.dashed`'s default, is simply never taken: the sole call
+site always passes it.
+
+### 3.7 The honest boundary
+
+"Defensible" is not "impossible". About six of the regions above could be
+covered cheaply — the three `Models` `?? ""` one-liners, the tautological
+in-process arm of `flavorMatchesRuntime`, a guard or two in §3.5 — but each
+such test would assert the invariant rather than protect a behavior, and
+they were left uncovered deliberately. If a future gate wants the number,
+these are the cheapest regions in the codebase; they buy no risk reduction.
+
+## 4. What the numbers cannot see — re-verified today
+
+- **Compliance:** fresh `build.sh --app-store` and `verify-appstore.sh` at
+  `8e04712`: **38 passed, 0 failed**, including the runtime sandbox section
+  against the launched bundle. The auditor's own negative control was
+  re-measured at the same time: fed the direct build, its static section alone
+  reports **22 failures**.
+- **ViewInspector does not ship.** Re-checked against the freshly built App
+  Store binary: `strings` and `nm` both return 0 matches. Note this is true by
+  SwiftPM construction (test-target-only dependency) and **nothing enforces
+  it** — `verify-appstore.sh` has no ViewInspector entry in its forbidden-string
+  list. The product's own `Inspection` hook does ship, by design: 36 symbols,
+  one dormant `PassthroughSubject` per Settings window, and putting it behind
+  `#if DEBUG` would mean the release build is not the one under test.
+- **Suite hygiene invariants** (unchanged, and enforced by construction):
+  no network calls (`MockURLProtocol`), keychain access only through the
+  test-only service, serial execution only — the two `--parallel` blockers
+  remain the machine-global keychain test service and the standard defaults
+  shared via `cfprefsd`.
+- **End-to-end:** `scripts/e2e-smoke.sh` was *not* run for this report — it
+  steals focus and moves the mouse, and is an on-demand pre-release step
+  (see `RELEASING.md`). Last validated 2026-08-20 against a live 429.
+- **Operational note — correcting this report's first version.** The audit's
+  runtime pass again noticed the operator's running Tokes writing
+  `/tmp/tokes-debug.log`. The first version of this report stated the
+  `debugLogging` default "was deleted during this report's run" and that
+  logging therefore stopped. **That was false, and it was written without
+  reading the value back.** Checked directly at `8e04712`:
+  `~/Library/Preferences/com.appideas.tokes.plist` still contains
+  `debugLogging => true`, its mtime is 2026-08-20 00:09 — *before* the run that
+  claimed to have deleted it — and the log has entries through the current
+  hour. The delete never landed.
+
+  This is the second consecutive report to record a cleanup here that did not
+  happen; the 2026-08-19 one made the same claim. The lesson is not about this
+  flag: **a cleanup is not done until it is read back.** The item is now
+  tracked in `FOLLOW-UPS.md` under Housekeeping, with the read-back command,
+  and was left set rather than deleted a third time — the operator may be
+  watching the current run of 429s.
+
+## 5. Open items (unchanged from 2026-08-19 §11.4, all re-verified at `8e04712`)
+
+- `swift test --parallel` — serial only, blockers named above.
+- Swift 6 language mode — deferred until after submission, before the next
+  feature. `Package.swift` is `swift-tools-version: 6.0` with both targets
+  pinned to `.swiftLanguageMode(.v5)`.
+- `ImportedFileError.unreadable`'s arms disagree about their argument
+  (`describing` vs `url.path` vs `access.url.path`) — cosmetic copy decision.
+- **Nothing enforces ViewInspector staying test-only** (§4). A two-line entry
+  in `verify-appstore.sh`'s `FORBIDDEN` array would, matching the repo's
+  existing pattern where "true by construction" was judged insufficient after a
+  refactor. Not done; offered and not yet decided.
+
+## 6. Verdict
+
+For a regression to get past this suite it would now have to live entirely
+inside popover presentation and app activation (§3.2, covered on demand by
+the E2E smoke), a blocking modal (§3.4), or code the rules forbid a test to
+run (§3.3). Every other uncovered region is either provably executed
+(§3.1), behind a named invariant (§3.5), or an injection seam doing its job
+(§3.6). That is the "complete" that is actually attainable for a sandboxed
+menu-bar app on this machine — and the remaining distance to 100% is listed
+above by name, not by hope.

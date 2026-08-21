@@ -25,16 +25,21 @@ mkdir -p "$SCRATCH/demo"   # harness lives at $SCRATCH/demo/main.swift
 
 cd /path/to/tokes
 bash -c 'SRC=$(ls Sources/Tokes/*.swift Sources/Tokes/Views/*.swift | grep -v "main.swift"); \
-  swiftc -o "'"$SCRATCH"'/Demo" $SRC "'"$SCRATCH"'/demo/main.swift"'
+  swiftc -o "'"$SCRATCH"'/VisualVerify" $SRC "'"$SCRATCH"'/demo/main.swift"'
 ```
 
-Two things that bite:
+Three things that bite:
 
 - **Wrap the compile in `bash -c`.** zsh does not word-split an unquoted `$SRC`,
   so `swiftc $SRC` passes every filename as one argument and fails with
   `error opening input file 'Sources/Tokes/AppDelegate.swift\nSources/...'`.
 - **Exclude `Sources/Tokes/main.swift`** — it's the app's entry point and would
   collide with the harness.
+- **Never name the output binary `Demo`.** APFS is case-insensitive, so it
+  collides with the `demo/` harness directory and the link fails with
+  `errno=21 (Is a directory)` — an error that doesn't name either path.
+  `VisualVerify` above is chosen to collide with nothing. (Its defaults domain
+  is then `~/Library/Preferences/VisualVerify.plist` — see cleanup below.)
 
 Expect deprecation warnings from the app sources; filter with `grep -E "error:"`.
 
@@ -74,14 +79,96 @@ once you can see where the icon landed. `sips -z <h> <w>` upscales for reading.
 `screencapture -x -o -l<CGWindowID(window.windowNumber)> out.png` captures one
 window directly and avoids the coordinate problem entirely.
 
-`SettingsView` is a fixed `460x560` and scrolls internally, so a taller window
-will **not** reveal the Behavior section. Find the `NSScrollView` in the hosting
-view's subtree and scroll it before capturing:
+`SettingsView` is a fixed **`460x620`** and scrolls internally, so a taller
+window will **not** reveal the Behavior section. Find the `NSScrollView` in the
+hosting view's subtree and scroll it before capturing:
 
 ```swift
 scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - scroll.contentView.bounds.height)))
 scroll.reflectScrolledClipView(scroll.contentView)
 ```
+
+### The credential sections are state machines, not static forms
+
+Since the onboarding work, most of Settings' height is conditional, and a
+screenshot only ever shows one branch. What renders depends on state the harness
+must set up deliberately:
+
+- **GitHub Copilot → Sign in with GitHub** renders one of five phases from
+  `GitHubConnectModel.phase` (`idle`, `requesting`, `awaitingUser`, `connected`,
+  `failed`). The model is a `@StateObject`, so drive it by setting
+  `githubModel.keychainService` to a **test** service and seeding a
+  `GitHubAppTokens` there — never the real slot, which holds the operator's
+  live session.
+- **Claude → Import a Claude Code credentials file** renders the export
+  walkthrough (command + hook disclosure) only while `claudeImportPath == nil`,
+  and switches to the refresh-commands disclosure once a file is imported. So
+  the walkthrough is invisible in any harness whose bookmark defaults already
+  carry an import.
+
+Both branches are cheaper to assert textually — the strings come from
+`ClaudeCodeExport`, and `PopoverView.offersSettingsShortcut` is a pure static
+func — than to photograph. Reach for a capture only when the question is
+genuinely about layout.
+
+## Which render path — and what each one silently breaks
+
+Two ways to capture SwiftUI off-screen. They are **not** interchangeable, and a
+view with both a grouped `Form` and symbol buttons cannot be captured correctly
+at high resolution by either. Pick knowing what you're buying:
+
+| | `ImageRenderer` | hosted view + `cacheDisplay` |
+|---|---|---|
+| Real resolution at the requested scale | **yes** | **no** — 1x rasterisation, upscaled |
+| Grouped `Form` (`SecureField`/`Toggle`/`Picker`) | **blank page** | renders |
+| `Image(systemName:)` in a `.buttonStyle(.borderless)` button | **yellow placeholder plate** | renders correctly |
+| Scrollable content | can't scroll it | can (see above) |
+
+**The placeholder trap shipped in two App Store screenshots** and survived four
+review passes, because it sat in the window chrome while everyone checked
+content. It is *not* "ImageRenderer can't do SF Symbols" — measured, all of
+these render fine: bare `Image(systemName:)`, `.imageScale`, `Label(systemImage:)`,
+`Image(nsImage:)`, and `.buttonStyle(.plain)`. **Only `.borderless` breaks.**
+
+`scripts/appstore-screenshots.py` now refuses any frame containing one. If you
+render popovers here, check for it the same way — saturated yellow, safe against
+brand orange and the severity colours:
+
+```python
+r > 200 and g > 170 and b < 90 and abs(r - g) < 70
+```
+
+**Controls always draw inactive.** An `.accessory` harness never activates, so
+`Toggle(isOn: true)` captures **grey, not accent blue**. Five approaches all
+measured at zero accent pixels — overriding `isKeyWindow`/`isMainWindow`,
+`.environment(\.controlActiveState, .key)` and `.active`, swizzling
+`-[NSApplication isActive]`, and `window.makeKey()`. Only `NSApp.activate(...)`
+works and that steals focus. Don't re-litigate this; supply the state at
+composition time if it's needed.
+
+`ImageRenderer` is main-actor isolated — wrap probe code in
+`MainActor.assumeIsolated { }` or it won't compile.
+
+## Measuring a render instead of eyeballing it
+
+Two techniques that answered questions a screenshot couldn't, both cheap:
+
+- **Is this render blank / does it contain X?** Count pixels differing from the
+  modal (background) colour, plus distinct colour count. A blank `ImageRenderer`
+  page reads 0.00% non-background and 1 colour; a working control render reads
+  ~3.6% and 300+ colours. Always look at the image too — a first detector here
+  counted a red severity dot as a placeholder plate.
+- **Where are the section boundaries?** Classify each pixel row as grouped-`Form`
+  card (light grey) vs page (white) by sampling a few x positions clear of text,
+  then print the runs as percentages of height. That located every Settings
+  section boundary to the point, which is what the designer needed to re-derive
+  a store-frame crop — and it agreed with their independent edge detection to
+  within 0.1%.
+
+No PIL or numpy on this machine. For stdlib-only pixel work, `sips -s format bmp`
+then parse the header and slice raw rows — no decompression, no PNG un-filtering.
+Sample a full-resolution grid rather than downscaling first, or a small feature
+gets averaged away into its surroundings.
 
 ## Asserting a Picker's options (better than a screenshot)
 

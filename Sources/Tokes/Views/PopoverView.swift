@@ -15,6 +15,14 @@ struct PopoverView: View {
             header
             if let error = state.errorMessage {
                 errorBanner(error)
+                if Self.offersSettingsShortcut(snapshot: state.snapshot,
+                                               error: state.errorMessage) {
+                    HStack {
+                        Spacer()
+                        Button("Open Settings…", action: onSettings)
+                        Spacer()
+                    }
+                }
             }
             if let snapshot = state.snapshot {
                 limitGroups(snapshot)
@@ -57,6 +65,15 @@ struct PopoverView: View {
                 }
             }
         }
+    }
+
+    /// Whether the error banner carries an Open Settings button: an error
+    /// with nothing ever polled is a setup problem whose fix lives in
+    /// Settings — put the door in front of the user rather than behind the
+    /// gear icon. Once data has flowed, an error is a hiccup and the banner
+    /// stays compact.
+    static func offersSettingsShortcut(snapshot: UsageSnapshot?, error: String?) -> Bool {
+        error != nil && snapshot == nil
     }
 
     /// Popover title: provider-specific while only Claude reports.
