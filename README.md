@@ -51,12 +51,13 @@ current install — so Settings walks you through three steps:
    it in Terminal. It writes your own sign-in to `~/.claude/tokes-credentials.json`.
 2. **Import.** Pick that file in the open panel Settings opens for you. Tokes re-reads it on
    every poll through a security-scoped bookmark, so a rotated token keeps working.
-3. **Optional, and the one that makes this livable:** merge the `SessionStart` hook Settings
-   gives you into `~/.claude/settings.json`. Every new Claude Code session then re-exports
-   the current token, which is what keeps the file fresh.
+3. **Optional, and the one that makes this livable:** merge the hooks Settings gives you
+   into `~/.claude/settings.json`. Claude Code then re-exports the current token when a
+   session starts and after every reply, which is what keeps the file fresh.
 
-The limitation, stated plainly: that hook fires on session *start*, so if you don't open
-Claude Code before the exported token expires, Claude data goes stale until you do. Tokes
+The limitation, stated plainly: the hooks fire only while you use Claude Code, so if you
+don't use it before the exported token expires, Claude data goes stale until your next
+reply there. Tokes
 says so at load rather than surfacing a bare 401.
 
 You can also **paste an OAuth access token** manually (stored in Tokes' own keychain item).

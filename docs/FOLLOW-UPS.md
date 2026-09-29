@@ -189,8 +189,8 @@ The live App Store Connect state and the release runbook are in
       authentication method for read-only usage display, via the "contact sales"
       route the legal page itself names. Until something comes back, the Claude
       path is the guided export and its one real limitation stands: the refresh
-      hook fires on Claude Code *SessionStart*, so a user who doesn't open
-      Claude Code before the token expires sees stale data
+      hook fires only while Claude Code is in use, so a user who doesn't use
+      it before the token expires sees stale data
       (`docs/CREDENTIALS.md`). Watch the paused Agent SDK subscription-credit
       program — the likeliest home for an official usage surface.
 

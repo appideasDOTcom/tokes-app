@@ -192,12 +192,12 @@ not.** Full detail in `docs/CREDENTIALS.md`.
   export their own sign-in to `~/.claude/tokes-credentials.json`, then **pick
   that file in a standard open panel**. Tokes re-reads it on every poll through a
   security-scoped bookmark, so a rotated token keeps working.
-- **Optional**: a one-line `SessionStart` hook merged into `~/.claude/settings.json`
-  re-exports the token every time Claude Code starts, which is what keeps the
-  file fresh. Settings gives the exact JSON with a Copy button.
-- **Honest limitation to not paper over**: the hook fires on session start, so a
-  user who doesn't open Claude Code before the exported token expires sees Claude
-  data go stale, with a message telling them what to do. This closes only if
+- **Optional**: a hook snippet merged into `~/.claude/settings.json` re-exports
+  the token when a Claude Code session starts and after every reply, which is
+  what keeps the file fresh. Settings gives the exact JSON with a Copy button.
+- **Honest limitation to not paper over**: the hook fires only while Claude Code
+  is in use, so a user who doesn't use it before the exported token expires sees
+  Claude data go stale, with a message telling them what to do. This closes only if
   Anthropic ever sanctions something; an outreach asking exactly that was sent
   2026-08-20 with no reply yet. Copy should not imply Claude stays connected
   automatically the way Copilot does.

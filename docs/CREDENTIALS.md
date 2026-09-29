@@ -104,8 +104,25 @@ app's credential store. Settings walks them through it:
 2. **Import** — the standard `NSOpenPanel` + security-scoped bookmark, panel
    opening in `~/.claude` where the export just landed.
 3. **Optional hook** — `ClaudeCodeExport.hookSnippet`, merged into the `hooks`
-   section of `~/.claude/settings.json`. Every new Claude Code session then
-   re-exports the current token, so **the file Tokes watches refreshes itself**.
+   section of `~/.claude/settings.json`. Claude Code then re-exports the current
+   token on `SessionStart` and on every `Stop`, so **the file Tokes watches
+   refreshes itself**.
+
+**`Stop` is the load-bearing event, and a pre-request hook alone is a trap.**
+Claude Code refreshes an expired token only *during* an API request, and both
+`SessionStart` and `UserPromptSubmit` fire *before* the first one. After an
+overnight expiry they export the dead token, so the file stays expired until
+some later prompt, however many times the user re-imports it or restarts Tokes.
+Measured 2026-09-28 with a `UserPromptSubmit` hook: a prompt at 05:46:48Z
+exported the expired token, Claude Code refreshed while answering it at
+05:46:52Z, and Tokes, restarted at 05:48:42Z, read `importedExpired` until the
+next prompt's export at 05:51:28Z. `Stop` fires after each reply, when the
+keychain already holds the refreshed token (verified with `claude -p --settings`:
+the `Stop` entry, with no `matcher`, fires once the reply has come back).
+`SessionStart` stays in the snippet for the case where another session has
+already refreshed the token. The manual export has the same ordering rule, which
+is why `importedExpired` says to *send Claude Code a prompt* first rather than
+just to open it.
 
 That third step is what makes this path livable rather than a token that dies in
 hours. Three details in `hookCommand` are deliberate and each fixes a real
@@ -129,9 +146,9 @@ clients on one chain knock each other out, and the App Store build could not
 write a healed credential back to Claude Code's keychain anyway. Keeping Tokes
 read-only is what makes sharing the credential safe.
 
-**Residual limitation, stated honestly:** the hook fires on *SessionStart*. A
-user who doesn't open Claude Code before the exported token expires sees Claude
-data go stale. `CredentialError.importedExpired` catches that at load and says
+**Residual limitation, stated honestly:** the hook fires only when Claude Code
+runs. A user who doesn't use Claude Code before the exported token expires sees
+Claude data go stale until their next reply. `CredentialError.importedExpired` catches that at load and says
 what to do, instead of surfacing the server's bare 401 — but the limitation is
 real, and it closes only if Anthropic ever sanctions something. An outreach
 asking exactly that was sent 2026-08-20

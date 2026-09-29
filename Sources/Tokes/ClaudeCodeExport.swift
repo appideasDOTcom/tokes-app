@@ -27,7 +27,7 @@ enum ClaudeCodeExport {
     static let exportCommand = "security find-generic-password -s \"Claude Code-credentials\" -w > "
         + "~/.claude/tokes-credentials.json && chmod 600 ~/.claude/tokes-credentials.json"
 
-    /// What the optional Claude Code SessionStart hook runs: the same export,
+    /// What the optional Claude Code hooks run: the same export,
     /// but it only touches the file when the keychain read *succeeds* — a
     /// plain `>` redirect would truncate a working export to zero bytes the
     /// moment the user is signed out, replacing "token expired" with a
@@ -41,19 +41,26 @@ enum ClaudeCodeExport {
         + "printf '%s\\n' \"$creds\" > ~/.claude/tokes-credentials.json; true"
 
     /// The snippet the user merges into the "hooks" section of
-    /// ~/.claude/settings.json. Every new Claude Code session then re-exports
-    /// the current token, so the file Tokes watches refreshes itself.
+    /// ~/.claude/settings.json, so the file Tokes watches refreshes itself.
     /// Generated rather than hand-written so the JSON escaping of
     /// `hookCommand`'s quotes can't be wrong.
+    ///
+    /// **`Stop` is the event that matters; `SessionStart` alone is a trap.**
+    /// Claude Code refreshes an expired token only *during* an API request,
+    /// and both `SessionStart` and `UserPromptSubmit` fire *before* the first
+    /// one — so after an overnight expiry they export the dead token and the
+    /// file stays stale until some later prompt (measured 2026-09-28: a
+    /// restart of Tokes after a fresh session still read `importedExpired`).
+    /// `Stop` fires after each reply, when the keychain already holds the
+    /// refreshed token. `SessionStart` stays for the case where another
+    /// session has already refreshed it, and so a user who merged the old
+    /// snippet sees the same entry here.
     static var hookSnippet: String {
+        let export: [[String: Any]] = [["type": "command", "command": hookCommand]]
         let object: [String: Any] = [
             "hooks": [
-                "SessionStart": [
-                    [
-                        "matcher": "*",
-                        "hooks": [["type": "command", "command": hookCommand]],
-                    ]
-                ]
+                "SessionStart": [["matcher": "*", "hooks": export]],
+                "Stop": [["hooks": export]],
             ]
         ]
         guard let data = try? JSONSerialization.data(

@@ -226,7 +226,7 @@ struct SettingsView: View {
     /// Claude Code on macOS keeps its sign-in in the keychain only — there is
     /// no credentials file to pick until the user makes one — so before the
     /// import button this shows the export command (and the optional
-    /// SessionStart hook that keeps the export fresh). Both strings come from
+    /// hooks that keep the export fresh). Both strings come from
     /// `ClaudeCodeExport`, the single source of truth the tests pin.
     @ViewBuilder
     private var claudeImportControls: some View {
@@ -254,8 +254,8 @@ struct SettingsView: View {
                 ? "3. Import the exported file — the panel opens in your ~/.claude folder, "
                     + "where the export landed as tokes-credentials.json."
                 : "Tokes re-reads this file on every refresh. When the token in it expires, "
-                    + "open Claude Code to refresh it (automatic with the hook below) or "
-                    + "re-run the export command.",
+                    + "send Claude Code a prompt so it refreshes, then — unless the hook below "
+                    + "is installed — re-run the export command after the reply.",
             importTitle: "Import Claude Code Credentials",
             importMessage: "Choose \(ClaudeCodeExport.exportedFilePath)",
             directory: RealHome.url.appendingPathComponent(".claude"),
@@ -276,12 +276,12 @@ struct SettingsView: View {
         }
     }
 
-    /// The optional SessionStart hook: what it does and the snippet to merge.
+    /// The optional refresh hooks: what they do and the snippet to merge.
     @ViewBuilder
     private var claudeHookHelp: some View {
-        Text("Merge this into the \"hooks\" section of ~/.claude/settings.json. Every new "
-            + "Claude Code session then re-exports the current token, so the file Tokes "
-            + "watches refreshes itself:")
+        Text("Merge this into the \"hooks\" section of ~/.claude/settings.json. Claude Code "
+            + "then re-exports the current token when a session starts and after every "
+            + "reply, so the file Tokes watches refreshes itself:")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)

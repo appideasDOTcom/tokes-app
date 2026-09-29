@@ -66,8 +66,10 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   self-refreshing, documented billing endpoints — while **Claude** is a guided
   *user-run* export (`ClaudeCodeExport`) that the user then imports through the
   powerbox, because macOS Claude Code is keychain-only and Tokes must never read
-  a foreign store. An optional Claude Code `SessionStart` hook re-exports each
-  session, which is the only reason that file stays fresh. Full mechanism,
+  a foreign store. An optional Claude Code hook re-exports on `SessionStart` and
+  `Stop`, which is the only reason that file stays fresh — **`Stop` is the one
+  that works**: Claude Code refreshes a token only during a request, so any
+  pre-request hook exports the expired token after an overnight expiry. Full mechanism,
   invariants, and the dead-end list: `docs/CREDENTIALS.md`. Three things that
   look like bugs and aren't: an org-provided Copilot seat legitimately has no
   per-user billing data; the Copilot percentage is measured against a
