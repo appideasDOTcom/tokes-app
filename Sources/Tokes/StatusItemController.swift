@@ -96,21 +96,25 @@ final class StatusItemController: NSObject {
     /// Everything the menu bar draws for a snapshot, computed with no AppKit
     /// involved so the composition can be asserted directly. `makeIcon` and
     /// `makeTitle` were already testable in isolation; this is the part that
-    /// decides *what they are given*, which is where the scoped-weekly setting
-    /// actually takes effect.
+    /// decides *what they are given*, which is where the display settings
+    /// actually take effect.
     struct MenuBarContent: Equatable {
-        /// Limits to draw, after the scoped-weekly setting has filtered them.
+        /// Limits to draw, after the session and scoped-weekly settings have
+        /// filtered them.
         let limits: [UsageLimit]
         /// Bar slots the Claude section reserves, so the item's width does not
-        /// jitter as buckets appear. Moves with the same setting that filters.
+        /// jitter as buckets appear. Moves with the same settings that filter.
         let claudeTracks: Int
         let toolTip: String
     }
 
-    /// Resolves a snapshot and the scoped-weekly setting into what the button
+    /// Resolves a snapshot and the display settings into what the button
     /// should show.
-    static func content(for snapshot: UsageSnapshot?, showScopedWeekly: Bool) -> MenuBarContent {
-        let limits = (snapshot?.limits ?? []).filter { showScopedWeekly || !$0.isScopedWeekly }
+    static func content(for snapshot: UsageSnapshot?, showScopedWeekly: Bool,
+                        showSession: Bool) -> MenuBarContent {
+        let limits = (snapshot?.limits ?? []).filter {
+            $0.isShown(showScopedWeekly: showScopedWeekly, showSession: showSession)
+        }
         let toolTip: String
         if limits.isEmpty {
             toolTip = "Tokes — waiting for usage data"
@@ -120,14 +124,19 @@ final class StatusItemController: NSObject {
                 .map { "\($0.label): \(Int($0.percent.rounded()))%" }
                 .joined(separator: " · ")
         }
-        return MenuBarContent(limits: limits,
-                              claudeTracks: showScopedWeekly ? 3 : 2,
-                              toolTip: toolTip)
+        // Weekly is always a track; session and the scoped weekly each add one.
+        let claudeTracks = 1 + (showSession ? 1 : 0) + (showScopedWeekly ? 1 : 0)
+        return MenuBarContent(limits: limits, claudeTracks: claudeTracks, toolTip: toolTip)
     }
 
     /// Reads the scoped-weekly setting, defaulting to on when never set.
     static func showScopedWeekly(in defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: SettingsKeys.showScopedWeekly) as? Bool ?? true
+    }
+
+    /// Reads the session setting, defaulting to on when never set.
+    static func showSession(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: SettingsKeys.showSession) as? Bool ?? true
     }
 
     /// Redraws the icon, optional percent label, and tooltip from a snapshot.
@@ -136,7 +145,8 @@ final class StatusItemController: NSObject {
     /// stale), normal otherwise.
     private func updateButton(with snapshot: UsageSnapshot?, hasError: Bool) {
         guard let button = statusItem.button else { return }
-        let content = Self.content(for: snapshot, showScopedWeekly: Self.showScopedWeekly())
+        let content = Self.content(for: snapshot, showScopedWeekly: Self.showScopedWeekly(),
+                                   showSession: Self.showSession())
         button.image = Self.makeIcon(limits: content.limits, claudeTracks: content.claudeTracks)
         button.imagePosition = .imageLeading
 
@@ -173,8 +183,9 @@ final class StatusItemController: NSObject {
     }
 
     /// Vertical bars, one per limit, filled bottom-up and colored by severity.
-    /// Claude reserves `claudeTracks` tracks (three, or two when the scoped
-    /// weekly limit is hidden); Copilot bars sit behind a thin divider so the
+    /// Claude reserves `claudeTracks` tracks (three, less one for each of the
+    /// session and scoped weekly limits hidden in Settings); Copilot bars sit
+    /// behind a thin divider so the
     /// provider groups read separately at a glance.
     static func makeIcon(limits: [UsageLimit], claudeTracks: Int = 3) -> NSImage {
         let barWidth: CGFloat = 5

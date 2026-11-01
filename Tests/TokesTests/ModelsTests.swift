@@ -191,27 +191,66 @@ final class MenuBarLabelTests: XCTestCase {
     }
 
     func testAvailableOptionsFollowTheOtherToggles() {
-        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: true),
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: true,
+                                              showSession: true),
                        [.off, .highest, .session, .weeklyAll, .weeklyScoped, .copilot])
-        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: true),
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: true,
+                                              showSession: true),
                        [.off, .highest, .session, .weeklyAll, .weeklyScoped])
-        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: false),
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: false,
+                                              showSession: true),
                        [.off, .highest, .session, .weeklyAll, .copilot])
-        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: false),
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: false,
+                                              showSession: true),
                        [.off, .highest, .session, .weeklyAll])
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: true, showScopedWeekly: true,
+                                              showSession: false),
+                       [.off, .highest, .weeklyAll, .weeklyScoped, .copilot])
+        // Weekly is the one measurement every plan reports, so it is the one
+        // option that never leaves the picker.
+        XCTAssertEqual(MenuBarLabel.available(copilotEnabled: false, showScopedWeekly: false,
+                                              showSession: false),
+                       [.off, .highest, .weeklyAll])
     }
 
     func testNormalizeFallsBackWhenAnOptionDisappears() {
-        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: false, showScopedWeekly: true),
+        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: false, showScopedWeekly: true,
+                                                       showSession: true),
                        .highest)
-        XCTAssertEqual(MenuBarLabel.weeklyScoped.normalized(copilotEnabled: true, showScopedWeekly: false),
+        XCTAssertEqual(MenuBarLabel.weeklyScoped.normalized(copilotEnabled: true, showScopedWeekly: false,
+                                                            showSession: true),
+                       .highest)
+        XCTAssertEqual(MenuBarLabel.session.normalized(copilotEnabled: true, showScopedWeekly: true,
+                                                       showSession: false),
                        .highest)
         // Still-offered selections are left alone.
-        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: true, showScopedWeekly: false),
+        XCTAssertEqual(MenuBarLabel.copilot.normalized(copilotEnabled: true, showScopedWeekly: false,
+                                                       showSession: false),
                        .copilot)
-        XCTAssertEqual(MenuBarLabel.off.normalized(copilotEnabled: false, showScopedWeekly: false), .off)
-        XCTAssertEqual(MenuBarLabel.session.normalized(copilotEnabled: false, showScopedWeekly: false),
+        XCTAssertEqual(MenuBarLabel.off.normalized(copilotEnabled: false, showScopedWeekly: false,
+                                                   showSession: false), .off)
+        XCTAssertEqual(MenuBarLabel.session.normalized(copilotEnabled: false, showScopedWeekly: false,
+                                                       showSession: true),
                        .session)
+        XCTAssertEqual(MenuBarLabel.weeklyAll.normalized(copilotEnabled: false, showScopedWeekly: false,
+                                                         showSession: false),
+                       .weeklyAll)
+    }
+
+    func testDisplayTogglesFilterOnlyTheirOwnLimit() {
+        let session = TestFixtures.limit(id: "session", isSession: true)
+        let weekly = TestFixtures.limit(id: "weekly_all")
+        let scoped = TestFixtures.limit(id: "weekly_scoped:Fable")
+        let copilot = TestFixtures.copilotLimit()
+        for limit in [session, weekly, scoped, copilot] {
+            XCTAssertTrue(limit.isShown(showScopedWeekly: true, showSession: true))
+        }
+        XCTAssertFalse(session.isShown(showScopedWeekly: true, showSession: false))
+        XCTAssertTrue(session.isShown(showScopedWeekly: false, showSession: true))
+        XCTAssertFalse(scoped.isShown(showScopedWeekly: false, showSession: true))
+        XCTAssertTrue(scoped.isShown(showScopedWeekly: true, showSession: false))
+        XCTAssertTrue(weekly.isShown(showScopedWeekly: false, showSession: false))
+        XCTAssertTrue(copilot.isShown(showScopedWeekly: false, showSession: false))
     }
 
     func testEveryOptionHasADistinctMenuTitle() {

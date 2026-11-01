@@ -37,6 +37,7 @@ final class AppDelegateTests: XCTestCase {
             XCTAssertEqual(defaults.string(forKey: SettingsKeys.copilotCredentialSource), "editor")
         #endif
         XCTAssertTrue(defaults.bool(forKey: SettingsKeys.showScopedWeekly))
+        XCTAssertTrue(defaults.bool(forKey: SettingsKeys.showSession))
     }
 
     func testMigrationCarriesTheOldToggleOver() {

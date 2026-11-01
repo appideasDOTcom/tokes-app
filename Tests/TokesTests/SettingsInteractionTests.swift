@@ -42,7 +42,8 @@ final class SettingsInteractionTests: XCTestCase {
                                               account: CopilotCredentialsProvider.manualAccount)
         UserDefaults.standard.removePersistentDomain(forName: bookmarksName)
         for key in [SettingsKeys.copilotEnabled, SettingsKeys.menuBarLabel,
-                    SettingsKeys.showScopedWeekly, SettingsKeys.credentialSource,
+                    SettingsKeys.showScopedWeekly, SettingsKeys.showSession,
+                    SettingsKeys.credentialSource,
                     SettingsKeys.copilotCredentialSource, SettingsKeys.refreshInterval] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -128,6 +129,19 @@ final class SettingsInteractionTests: XCTestCase {
             try $0.labelView().text().string().contains("model-specific")
         }).tap()
         try sut.inspect().form().callOnChange(oldValue: true, newValue: false, index: 1)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: SettingsKeys.menuBarLabel),
+                       MenuBarLabel.highest.rawValue)
+    }
+
+    func testTurningOffSessionDropsASessionSelection() throws {
+        UserDefaults.standard.set(true, forKey: SettingsKeys.showSession)
+        UserDefaults.standard.set(MenuBarLabel.session.rawValue, forKey: SettingsKeys.menuBarLabel)
+        let sut = settingsView()
+        try sut.inspect().find(ViewType.Toggle.self, where: {
+            try $0.labelView().text().string().contains("session limit")
+        }).tap()
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: SettingsKeys.showSession))
+        try sut.inspect().form().callOnChange(oldValue: true, newValue: false, index: 2)
         XCTAssertEqual(UserDefaults.standard.string(forKey: SettingsKeys.menuBarLabel),
                        MenuBarLabel.highest.rawValue)
     }

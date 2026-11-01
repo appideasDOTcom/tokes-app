@@ -85,6 +85,18 @@ final class ViewSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testPopoverViewHidesSessionWhenDisabled() {
+        UserDefaults.standard.set(false, forKey: SettingsKeys.showSession)
+        defer { UserDefaults.standard.removeObject(forKey: SettingsKeys.showSession) }
+        let hidden = popover(state: makeState())
+
+        UserDefaults.standard.removeObject(forKey: SettingsKeys.showSession)
+        let full = popover(state: makeState())
+
+        XCTAssertLessThan(hidden.fittingSize.height, full.fittingSize.height - 60)
+    }
+
+    @MainActor
     func testPopoverViewRendersConnectingState() {
         let view = popover(state: makeState(withSnapshot: false))
         XCTAssertGreaterThan(view.fittingSize.height, 40)
@@ -172,17 +184,21 @@ final class ViewSmokeTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: SettingsKeys.menuBarLabel)
             UserDefaults.standard.removeObject(forKey: SettingsKeys.copilotEnabled)
             UserDefaults.standard.removeObject(forKey: SettingsKeys.showScopedWeekly)
+            UserDefaults.standard.removeObject(forKey: SettingsKeys.showSession)
         }
         for copilot in [false, true] {
             for scoped in [false, true] {
-                UserDefaults.standard.set(copilot, forKey: SettingsKeys.copilotEnabled)
-                UserDefaults.standard.set(scoped, forKey: SettingsKeys.showScopedWeekly)
-                for option in MenuBarLabel.allCases {
-                    UserDefaults.standard.set(option.rawValue, forKey: SettingsKeys.menuBarLabel)
-                    let hosting = NSHostingController(rootView: settingsView())
-                    hosting.view.layoutSubtreeIfNeeded()
-                    XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
-                                   "\(option) / copilot=\(copilot) scoped=\(scoped)")
+                for session in [false, true] {
+                    UserDefaults.standard.set(copilot, forKey: SettingsKeys.copilotEnabled)
+                    UserDefaults.standard.set(scoped, forKey: SettingsKeys.showScopedWeekly)
+                    UserDefaults.standard.set(session, forKey: SettingsKeys.showSession)
+                    for option in MenuBarLabel.allCases {
+                        UserDefaults.standard.set(option.rawValue, forKey: SettingsKeys.menuBarLabel)
+                        let hosting = NSHostingController(rootView: settingsView())
+                        hosting.view.layoutSubtreeIfNeeded()
+                        XCTAssertEqual(hosting.view.fittingSize.width, 460, accuracy: 1,
+                                       "\(option) / copilot=\(copilot) scoped=\(scoped) session=\(session)")
+                    }
                 }
             }
         }

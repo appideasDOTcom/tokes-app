@@ -38,7 +38,7 @@ Three buckets, read from the `limits` array of Anthropic's OAuth usage endpoint
 
 | Bucket | Label the app draws | Notes |
 |---|---|---|
-| `session` | `Session (5 hr)` | the rolling 5-hour window |
+| `session` | `Session (5 hr)` | the rolling 5-hour window; plans without one (Claude Ultra) report nothing here, and it can be hidden in Settings |
 | `weekly_all` | `Weekly (7 day)` | all models |
 | `weekly_scoped` | `Weekly <Model>` (e.g. `Weekly Fable`) | per-model weekly cap; not every plan reports one; can be hidden in Settings |
 

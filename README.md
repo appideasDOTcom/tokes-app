@@ -21,7 +21,8 @@ AI credits (or premium requests, on a grandfathered plan) against your monthly a
 - **Settings** (gear in the popover): credential sources, Copilot on/off, refresh interval,
   launch at login, and **Show in menu bar** — off, the highest value, or one specific
   measurement (Session, Weekly, the model-scoped weekly, or Copilot Premium). The
-  model-scoped and Copilot entries are offered only while those are switched on; if the
+  session, model-scoped and Copilot entries are offered only while those are switched on
+  (hide the session limit on a plan without a 5-hour window, such as Claude Ultra); if the
   measurement you picked isn't in the current snapshot, the menu bar shows the icon alone
   rather than another limit's number. The **first launch ever** opens Settings by itself —
   a fresh install has nothing to poll, so the way in comes first.

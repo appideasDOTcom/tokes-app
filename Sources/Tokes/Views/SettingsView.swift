@@ -42,6 +42,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
     @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.defaultSource().rawValue
     @AppStorage(SettingsKeys.showScopedWeekly) private var showScopedWeekly = true
+    @AppStorage(SettingsKeys.showSession) private var showSession = true
 
     @State private var manualToken = ""
     @State private var tokenSaved = false
@@ -75,9 +76,11 @@ struct SettingsView: View {
                                describing: "Copilot config", defaults: bookmarkDefaults)
     }
 
-    /// Menu bar options offered for the current Copilot / scoped-weekly toggles.
+    /// Menu bar options offered for the current Copilot / scoped-weekly /
+    /// session toggles.
     private var availableLabels: [MenuBarLabel] {
-        MenuBarLabel.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly)
+        MenuBarLabel.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly,
+                               showSession: showSession)
     }
 
     var body: some View {
@@ -143,6 +146,7 @@ struct SettingsView: View {
                         Text(option.displayName).tag(option.rawValue)
                     }
                 }
+                Toggle("Show session limit (5 hr)", isOn: $showSession)
                 Toggle("Show model-specific weekly limit (e.g. Weekly Fable)", isOn: $showScopedWeekly)
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enable in
@@ -175,10 +179,12 @@ struct SettingsView: View {
             githubModel.refreshConnectionState()
             normalizeMenuBarLabel()
         }
-        // Turning off Copilot or the scoped weekly limit removes its menu bar
-        // option; a selection left pointing at it would render the picker blank.
+        // Turning off Copilot, the scoped weekly limit, or the session limit
+        // removes its menu bar option; a selection left pointing at it would
+        // render the picker blank.
         .onChange(of: copilotEnabled) { _, _ in normalizeMenuBarLabel() }
         .onChange(of: showScopedWeekly) { _, _ in normalizeMenuBarLabel() }
+        .onChange(of: showSession) { _, _ in normalizeMenuBarLabel() }
         .onChange(of: credentialSource) { _, _ in
             tokenSaved = false
             testResult = nil
@@ -544,7 +550,8 @@ struct SettingsView: View {
     private func normalizeMenuBarLabel() {
         let selection = MenuBarLabel(rawValue: menuBarLabel) ?? .off
         let valid = selection.normalized(copilotEnabled: copilotEnabled,
-                                         showScopedWeekly: showScopedWeekly)
+                                         showScopedWeekly: showScopedWeekly,
+                                         showSession: showSession)
         if valid.rawValue != menuBarLabel { menuBarLabel = valid.rawValue }
     }
 
