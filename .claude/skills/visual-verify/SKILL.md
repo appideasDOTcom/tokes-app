@@ -14,6 +14,19 @@ The technique: compile the app's own sources together with a throwaway
 `main.swift`, inject a synthetic `UsageSnapshot`, and `screencapture` the result.
 This drives the *real* `StatusItemController` / `SettingsView`, not a stand-in.
 
+## Start from the committed harness
+
+`harness-template.swift` beside this file is a complete, working harness
+(2026-11-01): it renders the popover with a settings key on and off via
+`ImageRenderer`, the menu bar icon at 8x, and Settings scrolled to the
+Behavior section via `cacheDisplay`, and prints the `MenuBarContent` for each
+state. Copy it to `<scratchpad>/demo/main.swift`, change the key and the
+limits, compile as below. One thing it measured that the Picker section
+further down does not say: a **windowless** `NSHostingController` exposes
+**zero** `NSPopUpButton`s in its subtree, so the picker-options assertion
+needs a window — and the unit tests already pin those options through
+`MenuBarLabel.available`, which is the better check anyway.
+
 ## Compiling a harness
 
 Put the harness in the scratchpad, in a file named exactly `main.swift`

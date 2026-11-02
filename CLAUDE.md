@@ -116,6 +116,18 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   Same trap class as the `grep -q` note below — under pipefail, never put an
   early-exiting consumer downstream of a producer that keeps writing. Still
   redirect the build to a *file* (`> log 2>&1`) — the log is chatty.
+- **CI is one workflow, `.github/workflows/build.yml`, and builds are release
+  assets, not Actions artifacts** (company convention, ported 2026-11-01 from
+  `e3-pc-unifier`): every push to `main`, `v*` tag and manual run publishes
+  `Tokes-<version>.zip` to a `build-<run>` pre-release, or to the real
+  `v<version>` release on a tag; `develop` pushes and PRs only test. Publishing
+  is `view || create` then `upload --clobber`, because **v1.4.2's release was
+  created by hand before the tag workflow ran**, `gh release create` failed on
+  "already exists", and that release still has no zip. Never pre-create a
+  release. To check a workflow change without pushing: this Mac has no
+  `actionlint` or PyYAML — parse with `ruby -ryaml` (the `on:` key lands at
+  `d[true]`, not `d["on"]`), and run the publish block against a stub `gh` on
+  `PATH` for the new / already-exists / branch / no-zip cases.
 - **`scripts/verify-appstore.sh` has two shell traps baked into its comments,**
   both of which silently turned checks into passes before they were found:
   `grep -q` under `set -o pipefail` (the producer takes SIGPIPE, so the pipeline
