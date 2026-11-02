@@ -22,8 +22,12 @@ why the cask still needs its `caveats` block.
 
 1. Set the version in `scripts/Info.plist` (`CFBundleShortVersionString`).
 2. Commit, then tag `v<version>` (e.g. `v1.0.0`) and push the tag.
-   The tag triggers `.github/workflows/release.yml`: tests → build →
+   The tag triggers `.github/workflows/build.yml`: tests → build →
    GitHub release with `Tokes-<version>.zip` attached and its sha256 in the notes.
+   **Don't create the release by hand first.** The workflow reuses an existing
+   release and replaces its assets (`gh release upload --clobber`), but v1.4.2
+   was created manually before the old workflow ran, which failed on "already
+   exists" and left that release with no zip.
 3. In the tap repo, update `Casks/tokes.rb`: bump `version`, paste the sha256
    from the release notes. Commit and push.
 
@@ -122,6 +126,17 @@ not submit for review; the build waits in App Store Connect until a human
 submits it.
 
 Both pipelines have to keep working. `scripts/test.sh` runs the suite in both
-configurations, and two workflows enforce it: `ci.yml` runs the suite plus the
-App Store audit on every push to `main`/`develop` and every pull request, and
-`release.yml` runs both again on a tag before it builds anything.
+configurations, and one workflow enforces it: `build.yml` runs the suite plus the
+App Store audit on every push to `main`/`develop`, every pull request, every
+`v*` tag and every manual run, before it builds anything.
+
+## Where builds live
+
+Every push to `main`, every tag and every manual run (`gh workflow run build`)
+publishes `Tokes-<version>.zip` as an asset of a GitHub release — a
+`build-<run number>` pre-release, or the real `v<version>` release for a tag.
+Never as an Actions artifact: release assets don't count against the account's
+Actions storage quota, artifacts do. Pushes to `develop` and pull requests are
+tested but not published. Old `build-N` pre-releases are cheap but not free of
+clutter; delete them with `gh release delete build-N --cleanup-tag` when they
+pile up.

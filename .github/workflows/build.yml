@@ -1,0 +1,104 @@
+# Tests + App Store audit on every push and pull request; a release zip
+# published on every push to main, every v* tag, and every manual run.
+#
+# Builds are published as assets of a GitHub release ("build-<run number>",
+# a pre-release, or the real "v<version>" release for a tag), never as Actions
+# artifacts: release assets don't count against the account's Actions storage
+# quota. Same mechanism as e3-pc-unifier's build.yml.
+#
+# Publishing is idempotent: a release that already exists is reused and its
+# assets replaced. The v1.4.2 release had been created by hand before the old
+# tag-only workflow ran, so `gh release create` failed on "already exists" and
+# the zip never got attached; `view || create` then `upload --clobber` cannot
+# fail that way.
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run irrelevant.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # macos-26 (Xcode 26+) is required: the app icon is an Icon Composer
+    # package and only Xcode 26's actool can compile a .icon. On an older
+    # image actool fails and build.sh aborts.
+    runs-on: macos-26
+    permissions:
+      contents: write   # create the release and upload the zip to it
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Info.plist version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' scripts/Info.plist)
+          [[ "${GITHUB_REF_NAME}" == "v${VERSION}" ]] || {
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Info.plist version v${VERSION}"
+            exit 1
+          }
+
+      # Both configurations: -DTOKES_APP_STORE removes whole functions, so the
+      # default configuration alone leaves that half unbuilt.
+      - name: Run tests (both build configurations)
+        run: ./scripts/test.sh
+
+      # The compliance boundary is a build artifact, so it regresses like one.
+      # --static-only because the runtime section needs to launch the app, which
+      # a CI runner has no session for.
+      - name: Audit the App Store build
+        run: |
+          ./scripts/build.sh --app-store
+          ./scripts/verify-appstore.sh --static-only
+
+      # Ad-hoc signed for now. When Developer ID signing lands, import the
+      # cert from repo secrets here and pass --sign/--notarize to release.sh.
+      - name: Build release zip
+        run: ./scripts/release.sh
+
+      # Pushes to develop are tested but not published; main, tags and manual
+      # runs are. A tag publishes the real release (the cask reads its sha256
+      # from the notes); anything else publishes a "build-<run>" pre-release.
+      - name: Publish to GitHub Release
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          github.ref == 'refs/heads/main' ||
+          startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(build/Tokes-*.zip)
+          if [ ${#files[@]} -ne 1 ]; then echo "::error::expected one zip in build/"; ls -la build; exit 1; fi
+          SHA=$(shasum -a 256 "${files[0]}" | awk '{print $1}')
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            TITLE="Tokes ${TAG}"
+            NOTES="Cask sha256: \`${SHA}\`"
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --title "$TITLE" --notes "$NOTES" || \
+              gh release view "$TAG" >/dev/null
+          else
+            TAG="build-${{ github.run_number }}"
+            TITLE="Tokes build ${{ github.run_number }}"
+            NOTES="Automated build of ${GITHUB_SHA:0:7} (${GITHUB_REF_NAME}). Ad-hoc signed: Gatekeeper will quarantine it on another machine. sha256: \`${SHA}\`"
+            gh release view "$TAG" >/dev/null 2>&1 || \
+              gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+                --title "$TITLE" --notes "$NOTES" || \
+              gh release view "$TAG" >/dev/null
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+          # The notes carry the sha256 of the asset that is attached *now*. On
+          # the reuse path (release pre-existed, or `create` lost a race) the
+          # upload above replaced the zip but left whatever notes the release
+          # had — for a hand-made release, none with a sha at all — so the
+          # cask step in RELEASING.md would read a missing or stale digest.
+          gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
+          echo "Published: $(gh release view "$TAG" --json url --jq .url)"

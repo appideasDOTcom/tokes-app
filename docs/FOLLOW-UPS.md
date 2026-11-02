@@ -135,6 +135,20 @@ The live App Store Connect state and the release runbook are in
       product risk. It also rendered *better* — `split()` binds on height, so
       the shorter source made 02 and 04 about 12% larger.
 
+      **Consequence for any later capture request (task 56, 2026-08-21):** there
+      is no path on this machine that gives correct header chrome *and* more
+      than 1x. `ImageRenderer` always draws the plates — that is what the
+      `.borderless` trigger means — and the hosting path that draws the glyphs
+      correctly rasterises at the layer's backing scale, which is 1.0 on every
+      display here. The states harness therefore renders the popovers **both
+      ways**: `popover-*-{light,dark}.png` at 9x/6x with plates in the header,
+      and `popover-*-hosted-{light,dark}.png` at a true 1x with the header
+      correct (measured: 0 plate px, and the three glyphs verified by eye).
+      A consumer picks per placement — crop the header off the crisp pair, or
+      place the hosted pair. On Retina hardware the hosted pair becomes a real
+      2x for free; that is the same note `assets.store_frames` carries for
+      Settings.
+
 - [x] **Screenshot set re-uploaded — DONE 2026-08-20, operator-authorised.**
       Six frames from the designer's `handoff/`, replacing the set that carried
       the placeholder plates. Set `0ae1c8c7-eafa-4413-b848-a7c4ade9a796`.
@@ -175,8 +189,8 @@ The live App Store Connect state and the release runbook are in
       authentication method for read-only usage display, via the "contact sales"
       route the legal page itself names. Until something comes back, the Claude
       path is the guided export and its one real limitation stands: the refresh
-      hook fires on Claude Code *SessionStart*, so a user who doesn't open
-      Claude Code before the token expires sees stale data
+      hook fires only while Claude Code is in use, so a user who doesn't use
+      it before the token expires sees stale data
       (`docs/CREDENTIALS.md`). Watch the paused Agent SDK subscription-credit
       program — the likeliest home for an official usage surface.
 
@@ -218,6 +232,18 @@ The live App Store Connect state and the release runbook are in
       matches the value range.
 
 ## Housekeeping
+
+- [ ] **`product.facts` and `docs/marketing-facts.md` must be updated the moment
+      any install path starts working.** Their `availability_status` block says
+      the App Store listing is not live, the Homebrew tap is empty, and no
+      notarized build exists. Those three lines are consumed by
+      `appideas-designer` for the appideas.com landing page, and they fail
+      *unsafely*: the day a path starts working, the contract is telling a
+      consumer not to publish something that is now true, and (worse, later) a
+      consumer who stopped re-reading will publish an install that 404s. So
+      whoever publishes the cask, ships the notarized build, or sees the listing
+      approved bumps the contract in the same pass and messages the designer —
+      a version bump alone is not notice (playbook §5).
 
 - [ ] **The Homebrew tap has never been published.**
       `appideasDOTcom/homebrew-tap` exists and is public but is **empty** — no

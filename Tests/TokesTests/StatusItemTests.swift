@@ -108,11 +108,12 @@ final class MenuBarContentTests: XCTestCase {
         TestFixtures.limit(id: "weekly_scoped:Fable", label: "Weekly Fable", percent: 88),
     ]
 
-    private func content(_ limits: [UsageLimit]?, showScopedWeekly: Bool = true)
+    private func content(_ limits: [UsageLimit]?, showScopedWeekly: Bool = true,
+                         showSession: Bool = true)
         -> StatusItemController.MenuBarContent {
         StatusItemController.content(
             for: limits.map { UsageSnapshot(limits: $0, fetchedAt: Date()) },
-            showScopedWeekly: showScopedWeekly)
+            showScopedWeekly: showScopedWeekly, showSession: showSession)
     }
 
     // MARK: - The scoped-weekly setting
@@ -155,6 +156,48 @@ final class MenuBarContentTests: XCTestCase {
         XCTAssertFalse(StatusItemController.showScopedWeekly(in: defaults))
         defaults.set(true, forKey: SettingsKeys.showScopedWeekly)
         XCTAssertTrue(StatusItemController.showScopedWeekly(in: defaults))
+    }
+
+    // MARK: - The session setting
+
+    /// A plan with no 5-hour window (Claude Ultra) leaves the session row
+    /// empty; hiding it must drop both the limit and its reserved bar slot.
+    func testHidingTheSessionDropsItAndItsBarSlot() {
+        let hidden = content(claude, showSession: false)
+        XCTAssertEqual(hidden.limits.map(\.id), ["weekly_all", "weekly_scoped:Fable"])
+        XCTAssertEqual(hidden.claudeTracks, 2)
+        XCTAssertFalse(hidden.toolTip.contains("Session"))
+        XCTAssertEqual(StatusItemController.makeIcon(limits: hidden.limits,
+                                                     claudeTracks: hidden.claudeTracks).size.width,
+                       15)
+    }
+
+    func testHidingBothOptionalLimitsLeavesOneTrack() {
+        let weeklyOnly = content(claude, showScopedWeekly: false, showSession: false)
+        XCTAssertEqual(weeklyOnly.limits.map(\.id), ["weekly_all"])
+        XCTAssertEqual(weeklyOnly.claudeTracks, 1)
+        XCTAssertEqual(StatusItemController.makeIcon(limits: weeklyOnly.limits,
+                                                     claudeTracks: weeklyOnly.claudeTracks).size.width,
+                       7)
+    }
+
+    func testHidingTheSessionLeavesCopilotAlone() {
+        let hidden = content(claude + [TestFixtures.copilotLimit(percent: 12)],
+                             showSession: false)
+        XCTAssertEqual(hidden.limits.map(\.id),
+                       ["weekly_all", "weekly_scoped:Fable", "copilot_premium"])
+    }
+
+    func testTheSessionSettingDefaultsToOnWhenNeverSet() {
+        let suite = "TokesTests-session-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(StatusItemController.showSession(in: defaults))
+        defaults.set(false, forKey: SettingsKeys.showSession)
+        XCTAssertFalse(StatusItemController.showSession(in: defaults))
+        defaults.set(true, forKey: SettingsKeys.showSession)
+        XCTAssertTrue(StatusItemController.showSession(in: defaults))
     }
 
     // MARK: - Tooltip

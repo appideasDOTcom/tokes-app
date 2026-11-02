@@ -11,6 +11,9 @@ enum SettingsKeys {
     static let copilotPlan = "copilotPlan"
     static let copilotCustomAllowance = "copilotCustomAllowance"
     static let showScopedWeekly = "showScopedWeekly"
+    /// Whether the 5-hour session limit is drawn at all. Plans without a
+    /// session window (Claude Ultra) make it an empty row and an empty bar.
+    static let showSession = "showSession"
     /// Security-scoped bookmarks for user-imported credentials files.
     static let claudeCredentialFile = "claudeCredentialFileBookmark"
     static let copilotCredentialFile = "copilotCredentialFileBookmark"
@@ -63,10 +66,13 @@ enum MenuBarLabel: String, CaseIterable {
         }
     }
 
-    /// The options Settings offers: the two always-present Claude limits plus
+    /// The options Settings offers: the always-present weekly limit plus
     /// whichever optional measurements the other toggles have enabled.
-    static func available(copilotEnabled: Bool, showScopedWeekly: Bool) -> [MenuBarLabel] {
-        var result: [MenuBarLabel] = [.off, .highest, .session, .weeklyAll]
+    static func available(copilotEnabled: Bool, showScopedWeekly: Bool,
+                          showSession: Bool) -> [MenuBarLabel] {
+        var result: [MenuBarLabel] = [.off, .highest]
+        if showSession { result.append(.session) }
+        result.append(.weeklyAll)
         if showScopedWeekly { result.append(.weeklyScoped) }
         if copilotEnabled { result.append(.copilot) }
         return result
@@ -74,8 +80,10 @@ enum MenuBarLabel: String, CaseIterable {
 
     /// Falls back to "Highest value" when this option is no longer offered,
     /// e.g. Copilot was selected and then turned off.
-    func normalized(copilotEnabled: Bool, showScopedWeekly: Bool) -> MenuBarLabel {
-        Self.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly)
+    func normalized(copilotEnabled: Bool, showScopedWeekly: Bool,
+                    showSession: Bool) -> MenuBarLabel {
+        Self.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly,
+                       showSession: showSession)
             .contains(self) ? self : .highest
     }
 
@@ -292,6 +300,12 @@ struct UsageLimit: Identifiable, Equatable {
     /// every plan reports and the Settings toggle can hide.
     var isScopedWeekly: Bool {
         id.hasPrefix("weekly_scoped")
+    }
+
+    /// Whether the two display toggles let this limit through. One place,
+    /// because the popover, the icon, and the tooltip must agree on it.
+    func isShown(showScopedWeekly: Bool, showSession: Bool) -> Bool {
+        (showScopedWeekly || !isScopedWeekly) && (showSession || !isSession)
     }
 }
 

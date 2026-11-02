@@ -28,9 +28,13 @@ enum CredentialError: LocalizedError, Equatable {
             return "That credential source isn't available in this build. "
                 + "Import a credentials file or paste a token in Settings."
         case .importedExpired:
-            return "The imported Claude credentials have expired. Open Claude Code to refresh "
-                + "them — with the refresh hook installed the file updates itself; otherwise "
-                + "re-run the export command shown in Settings."
+            // "Open Claude Code" is not enough: Claude Code refreshes only during
+            // a request, so an export (manual or hook) taken before the first
+            // reply copies the same dead token. The order is the instruction.
+            return "The imported Claude credentials have expired. Send Claude Code a prompt "
+                + "so it refreshes them — with the refresh hook installed the file updates "
+                + "itself when the reply finishes; otherwise re-run the export command shown "
+                + "in Settings after that reply."
         }
     }
 }
@@ -132,7 +136,7 @@ final class CredentialsProvider {
     ///
     /// A recorded expiry in the past fails *here*, with a message that says
     /// what to do, rather than as the server's bare 401 — for this source the
-    /// file is all there is, and the fix (open Claude Code / re-export) is
+    /// file is all there is, and the fix (prompt Claude Code, then re-export) is
     /// nothing the user could guess from "HTTP 401".
     static func loadImportedToken(from file: ImportedCredentialFile,
                                   now: Date = Date()) throws -> (String, Date?) {

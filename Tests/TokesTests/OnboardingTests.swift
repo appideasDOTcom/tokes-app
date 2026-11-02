@@ -79,17 +79,35 @@ final class ClaudeCodeExportTests: XCTestCase {
         XCTAssertTrue(ClaudeCodeExport.hookCommand.contains(ClaudeCodeExport.exportedFilePath))
     }
 
+    /// `Stop` is the load-bearing event: Claude Code refreshes an expired token
+    /// only during a request, and `SessionStart` fires before the first one —
+    /// a snippet with only `SessionStart` exports the dead token every morning.
     func testHookSnippetIsValidJSONWiringTheHookCommand() throws {
         let data = Data(ClaudeCodeExport.hookSnippet.utf8)
         let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        XCTAssertEqual(Set(hooks.keys), ["SessionStart", "Stop"])
+
         let sessionStart = try XCTUnwrap(hooks["SessionStart"] as? [[String: Any]])
         XCTAssertEqual(sessionStart.count, 1)
         XCTAssertEqual(sessionStart[0]["matcher"] as? String, "*")
-        let inner = try XCTUnwrap(sessionStart[0]["hooks"] as? [[String: Any]])
-        XCTAssertEqual(inner.count, 1)
-        XCTAssertEqual(inner[0]["type"] as? String, "command")
-        XCTAssertEqual(inner[0]["command"] as? String, ClaudeCodeExport.hookCommand)
+        try assertRunsOnlyTheHookCommand(sessionStart[0])
+
+        let stop = try XCTUnwrap(hooks["Stop"] as? [[String: Any]],
+                                 "without Stop the refreshed token never reaches the file")
+        XCTAssertEqual(stop.count, 1)
+        XCTAssertNil(stop[0]["matcher"], "Stop takes no matcher")
+        try assertRunsOnlyTheHookCommand(stop[0])
+    }
+
+    private func assertRunsOnlyTheHookCommand(_ entry: [String: Any],
+                                              file: StaticString = #filePath,
+                                              line: UInt = #line) throws {
+        let inner = try XCTUnwrap(entry["hooks"] as? [[String: Any]], file: file, line: line)
+        XCTAssertEqual(inner.count, 1, file: file, line: line)
+        XCTAssertEqual(inner[0]["type"] as? String, "command", file: file, line: line)
+        XCTAssertEqual(inner[0]["command"] as? String, ClaudeCodeExport.hookCommand,
+                       file: file, line: line)
     }
 
     // MARK: - Running them
@@ -187,6 +205,8 @@ final class ImportedCredentialExpiryTests: XCTestCase {
             XCTAssertEqual(error as? CredentialError, .importedExpired)
             let message = (error as? CredentialError)?.errorDescription ?? ""
             XCTAssertTrue(message.contains("Claude Code"), "the fix must be named: \(message)")
+            XCTAssertTrue(message.contains("prompt"),
+                          "opening Claude Code refreshes nothing until it sends a request: \(message)")
             XCTAssertTrue(message.contains("Settings"), "and where to find it: \(message)")
         }
     }

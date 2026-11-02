@@ -40,7 +40,8 @@ final class StatusItemControllerLiveTests: XCTestCase {
         poller.stop()
         try? FileManager.default.removeItem(at: tempDir)
         UserDefaults.standard.removeSuite(named: suiteName)
-        for key in [SettingsKeys.menuBarLabel, SettingsKeys.showScopedWeekly] {
+        for key in [SettingsKeys.menuBarLabel, SettingsKeys.showScopedWeekly,
+                    SettingsKeys.showSession] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         super.tearDown()

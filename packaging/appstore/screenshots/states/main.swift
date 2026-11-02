@@ -36,6 +36,13 @@ let STRIP_SCALE: CGFloat = 24           // hero, placed ~1250px wide each
 let POPOVER_NEAR_SCALE: CGFloat = 9     // cropped to the session chart, blown to ~2400px
 let POPOVER_BOTH_SCALE: CGFloat = 6     // placed ~1460px tall
 let SETTINGS_SCALE: CGFloat = 6         // placed ~1460px tall
+/// The hosted popover renders. 1 is not a placeholder for a bigger number: this
+/// path rasterises the hosting view's layer at its backing scale, and every
+/// display on this machine reports 1.0, so anything larger would be an upscale
+/// wearing a bigger dimension — the trap that once shipped a "9x" capture
+/// carrying 1x of detail. Raise it only on Retina hardware, where the same call
+/// yields real 2x. See the popover block for why this path exists at all.
+let POPOVER_HOSTED_SCALE: CGFloat = 1
 
 /// Keychain service for the harness. NOT the real one.
 ///
@@ -406,12 +413,28 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             print("  !! ImageRenderer returned nil for popover-near-limit")
         }
 
+        // The same state through the hosting path, which is what an NSPopover
+        // actually uses. ImageRenderer draws `Image(systemName:)` inside a
+        // `.buttonStyle(.borderless)` button as the unresolvable-image
+        // placeholder — three yellow plates in the header of every file above.
+        // The app is not affected and the operator ruled that `.borderless`
+        // stays (docs/FOLLOW-UPS.md), so these two paths are the whole menu:
+        // crisp with plates in the header, or correct chrome at 1x. Rendered as
+        // a pair so a consumer can choose per placement instead of taking the
+        // trade on trust.
+        writePNG(render(hosted(nearContent, appearance: appearance),
+                        scale: POPOVER_HOSTED_SCALE),
+                 "popover-near-limit-hosted-\(suffix).png")
+
         defaults.set(true, forKey: SettingsKeys.copilotEnabled)
         let bothContent = PopoverView(state: appState(setA), onHoverChanged: { _ in },
                                       onSettings: {}, onRefresh: {}, onQuit: {})
         if let rep = renderSwiftUI(bothContent, scale: POPOVER_BOTH_SCALE, dark: dark) {
             writePNG(rep, "popover-both-sources-\(suffix).png")
         }
+        writePNG(render(hosted(bothContent, appearance: appearance),
+                        scale: POPOVER_HOSTED_SCALE),
+                 "popover-both-sources-hosted-\(suffix).png")
 
         // -- Settings, as the App Store build presents it --------------------
         // Both credential paths the submitted build offers. The automatic

@@ -42,6 +42,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.copilotEnabled) private var copilotEnabled = false
     @AppStorage(SettingsKeys.copilotCredentialSource) private var copilotCredentialSource = CopilotCredentialSource.defaultSource().rawValue
     @AppStorage(SettingsKeys.showScopedWeekly) private var showScopedWeekly = true
+    @AppStorage(SettingsKeys.showSession) private var showSession = true
 
     @State private var manualToken = ""
     @State private var tokenSaved = false
@@ -75,9 +76,11 @@ struct SettingsView: View {
                                describing: "Copilot config", defaults: bookmarkDefaults)
     }
 
-    /// Menu bar options offered for the current Copilot / scoped-weekly toggles.
+    /// Menu bar options offered for the current Copilot / scoped-weekly /
+    /// session toggles.
     private var availableLabels: [MenuBarLabel] {
-        MenuBarLabel.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly)
+        MenuBarLabel.available(copilotEnabled: copilotEnabled, showScopedWeekly: showScopedWeekly,
+                               showSession: showSession)
     }
 
     var body: some View {
@@ -143,6 +146,7 @@ struct SettingsView: View {
                         Text(option.displayName).tag(option.rawValue)
                     }
                 }
+                Toggle("Show session limit (5 hr)", isOn: $showSession)
                 Toggle("Show model-specific weekly limit (e.g. Weekly Fable)", isOn: $showScopedWeekly)
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enable in
@@ -175,10 +179,12 @@ struct SettingsView: View {
             githubModel.refreshConnectionState()
             normalizeMenuBarLabel()
         }
-        // Turning off Copilot or the scoped weekly limit removes its menu bar
-        // option; a selection left pointing at it would render the picker blank.
+        // Turning off Copilot, the scoped weekly limit, or the session limit
+        // removes its menu bar option; a selection left pointing at it would
+        // render the picker blank.
         .onChange(of: copilotEnabled) { _, _ in normalizeMenuBarLabel() }
         .onChange(of: showScopedWeekly) { _, _ in normalizeMenuBarLabel() }
+        .onChange(of: showSession) { _, _ in normalizeMenuBarLabel() }
         .onChange(of: credentialSource) { _, _ in
             tokenSaved = false
             testResult = nil
@@ -226,7 +232,7 @@ struct SettingsView: View {
     /// Claude Code on macOS keeps its sign-in in the keychain only — there is
     /// no credentials file to pick until the user makes one — so before the
     /// import button this shows the export command (and the optional
-    /// SessionStart hook that keeps the export fresh). Both strings come from
+    /// hooks that keep the export fresh). Both strings come from
     /// `ClaudeCodeExport`, the single source of truth the tests pin.
     @ViewBuilder
     private var claudeImportControls: some View {
@@ -254,8 +260,8 @@ struct SettingsView: View {
                 ? "3. Import the exported file — the panel opens in your ~/.claude folder, "
                     + "where the export landed as tokes-credentials.json."
                 : "Tokes re-reads this file on every refresh. When the token in it expires, "
-                    + "open Claude Code to refresh it (automatic with the hook below) or "
-                    + "re-run the export command.",
+                    + "send Claude Code a prompt so it refreshes, then — unless the hook below "
+                    + "is installed — re-run the export command after the reply.",
             importTitle: "Import Claude Code Credentials",
             importMessage: "Choose \(ClaudeCodeExport.exportedFilePath)",
             directory: RealHome.url.appendingPathComponent(".claude"),
@@ -276,12 +282,12 @@ struct SettingsView: View {
         }
     }
 
-    /// The optional SessionStart hook: what it does and the snippet to merge.
+    /// The optional refresh hooks: what they do and the snippet to merge.
     @ViewBuilder
     private var claudeHookHelp: some View {
-        Text("Merge this into the \"hooks\" section of ~/.claude/settings.json. Every new "
-            + "Claude Code session then re-exports the current token, so the file Tokes "
-            + "watches refreshes itself:")
+        Text("Merge this into the \"hooks\" section of ~/.claude/settings.json. Claude Code "
+            + "then re-exports the current token when a session starts and after every "
+            + "reply, so the file Tokes watches refreshes itself:")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -544,7 +550,8 @@ struct SettingsView: View {
     private func normalizeMenuBarLabel() {
         let selection = MenuBarLabel(rawValue: menuBarLabel) ?? .off
         let valid = selection.normalized(copilotEnabled: copilotEnabled,
-                                         showScopedWeekly: showScopedWeekly)
+                                         showScopedWeekly: showScopedWeekly,
+                                         showSession: showSession)
         if valid.rawValue != menuBarLabel { menuBarLabel = valid.rawValue }
     }
 

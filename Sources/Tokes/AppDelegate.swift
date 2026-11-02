@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsKeys.copilotPlan: CopilotPlan.pro.rawValue,
             SettingsKeys.copilotCustomAllowance: 1500.0,
             SettingsKeys.showScopedWeekly: true,
+            SettingsKeys.showSession: true,
         ])
     }
 
