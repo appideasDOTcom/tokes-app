@@ -126,8 +126,10 @@ Hard-won gotchas from building this app. Read before debugging UI or logging iss
   "already exists", and that release still has no zip. Never pre-create a
   release. To check a workflow change without pushing: this Mac has no
   `actionlint` or PyYAML — parse with `ruby -ryaml` (the `on:` key lands at
-  `d[true]`, not `d["on"]`), and run the publish block against a stub `gh` on
-  `PATH` for the new / already-exists / branch / no-zip cases.
+  `d[true]`, not `d["on"]`), and run `scripts/check-publish-step.sh`, which extracts the publish block and
+  runs it against a stub `gh` for the new / already-exists / race / branch /
+  no-zip cases, asserting each publishing case ends with one `release edit`
+  carrying the uploaded zip's sha256 (the reuse path once left the notes stale).
 - **`scripts/verify-appstore.sh` has two shell traps baked into its comments,**
   both of which silently turned checks into passes before they were found:
   `grep -q` under `set -o pipefail` (the producer takes SIGPIPE, so the pipeline
@@ -230,6 +232,22 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   interactively; the operator says "nudge" when something is waiting.
 - The company designer is `appideas-designer`. Verify what any other agent tells
   you by running it yourself before relying on it.
+- **`appideas-qa` reviews PRs, and its protocol is fixed.** The operator says
+  "standby" / "nudge"; QA posts a GitHub review with one inline thread per
+  finding (Blocker / Low / Info) plus a channel broadcast carrying the same
+  list, test counts from a scratch clone, and a mutation ("red-verify") pass
+  over the new tests. Closing protocol: reply on *every* thread — fix, or
+  write why not (Infos close on a written reason) — never resolve QA's
+  threads yourself, broadcast the summary, then the operator pushes and QA
+  re-measures at the pushed SHA (it sha256s the files against your tree, so
+  the tree measurements stand if nothing else moved). Merge stays the
+  operator's. Write tests that a mutation would turn red; a test that goes
+  red for an incidental reason (a ViewInspector "not found") gets flagged.
+- **Poll from the last cursor, never from 0.** `poll_messages` with `since: 0`
+  returns the whole channel history (90 KB+) and overflows the tool result;
+  message ids are global across channels, so the cursor can jump by thousands
+  between sessions. Start from the highest id you have seen and surface the
+  new cursor in your reply.
 
 ## Rules
 
@@ -322,10 +340,14 @@ Tokes talks to other APPideas agents over the `orchestratinator` MCP server
   release note — starts there, and a claim that outlives its line in that
   contract is how a page ends up advertising an install that 404s.
 - **Open items live in `docs/FOLLOW-UPS.md`** — read it before starting App
-  Store work, and before assuming a contract is current. Both channel contracts
-  are current as of 2026-08-20: `assets.app_icon` v2 (designer) and
-  `build.app_icon` v3 (ours). Call `get_contract` anyway rather than trusting
-  this line.
+  Store work, and before assuming a contract is current. Channel contracts as of
+  2026-11-02: `assets.app_icon` v2 (designer), `build.app_icon` v3 (ours),
+  `assets.store_frames` (designer), `product.facts` v2 (ours). Call
+  `get_contract` anyway rather than trusting this line. **A PR that changes a
+  documented feature or credential path moves `docs/marketing-facts.md`'s
+  provenance line and `product.facts` in the same pass** — QA checks the
+  provenance against the head and files a finding when it still names an
+  older commit.
 - **Mac App Store releases take no arguments and no secrets.** API credentials
   live in `packaging/appstore/asc-credentials.env` (git-ignored; the `.example`
   documents it) and signing identities are discovered from the login keychain,
