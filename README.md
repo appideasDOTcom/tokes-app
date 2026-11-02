@@ -7,7 +7,8 @@ carries — **Session (5 hr)**, **Weekly (7 day)**, and the **weekly model-scope
 draw down the same buckets. Optionally it also tracks your **GitHub Copilot** usage —
 AI credits (or premium requests, on a grandfathered plan) against your monthly allowance.
 
-- **Menu bar icon**: three vertical bars (Session · Weekly · Model), filled bottom-up and
+- **Menu bar icon**: up to three vertical bars (Session · Weekly · Model; the Session and
+  Model bars disappear when those limits are hidden in Settings), filled bottom-up and
   colored by severity (green → orange ≥ 60% → red ≥ 85%). Optional text label showing one
   percentage — either the highest of them, or a specific limit you pick in Settings. With
   Copilot enabled, its bar appears behind a thin divider so the provider groups read

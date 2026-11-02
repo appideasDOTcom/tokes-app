@@ -1,15 +1,19 @@
 # Tokes — verified facts for marketing copy
 
 Written for `appideas-designer` (channel task 54) as the source of truth for the
-appideas.com landing page. Everything here was read out of the source at commit
-`2ad2677` (marketing version **1.4.2**, `CFBundleVersion` **6**) on 2026-08-20,
-not from memory or from the README.
+appideas.com landing page. Everything here was first read out of the source at
+commit `2ad2677` (marketing version **1.4.2**, `CFBundleVersion` **6**) on
+2026-08-20, not from memory or from the README. Re-checked on 2026-11-02 against
+the 1.4.4 head (`CFBundleVersion` **7**) for everything that release changed:
+the session-limit toggle (§2, §4, first-run defaults), the `Stop` hook event
+and the expired-credentials wording (§6), and the menu bar strip (§4). Claims
+outside those areas were not re-read and still cite the 1.4.2 source.
 
-**Do not source claims from `README.md`.** Its "How it gets the numbers" section
-predates build 6 and still describes the old credential story (Claude Code
-keychain first, Copilot via `copilot_internal/user`). Those code paths still
-exist in the direct build, but they are no longer how the product is meant to be
-described — see §6. This file supersedes it for copy purposes.
+**Do not source claims from `README.md`.** It is a summary, with no source
+reference per claim, and it has drifted from the mechanism once already (it
+described the pre-build-6 credential story until 1.4.4 rewrote the section).
+`docs/CREDENTIALS.md` is the authority on how a user connects — see §6 — and
+this file supersedes the README for copy purposes.
 
 Every claim below carries the file it came from so it can be re-checked cold.
 
@@ -83,10 +87,12 @@ Off by default; one toggle in Settings turns it on.
 
 ### Menu bar item (`StatusItemController.swift`)
 
-- **Three vertical bars** — Session · Weekly · Model-scoped — 5pt wide on a 16pt
-  track, filled bottom-up, colored by severity: **green below 60%, orange at
-  60–84%, red at 85%+** (`SeverityColor`). Slots are reserved so the item does
-  not jitter in width as buckets appear.
+- **Up to three vertical bars** — Session · Weekly · Model-scoped — 5pt wide on
+  a 16pt track, filled bottom-up, colored by severity: **green below 60%, orange
+  at 60–84%, red at 85%+** (`SeverityColor`). Slots are reserved so the item
+  does not jitter in width as buckets appear; hiding the session or model-scoped
+  limit in Settings removes its slot (`claudeTracks`), so the Claude group is
+  one bar at minimum.
 - With Copilot on, its bar sits **behind a thin vertical divider** so the two
   services read as separate groups at a glance.
 - **Optional percentage text** beside the icon. **Off by default.** In Settings
@@ -134,7 +140,7 @@ Off by default; one toggle in Settings turns it on.
 ### Settings (`SettingsView.swift`)
 
 Four sections: **Claude Connection**, **GitHub Copilot**, **Behavior**, and a
-version footer that reads e.g. `Tokes 1.4.2 (App Store)`.
+version footer that reads e.g. `Tokes 1.4.4 (App Store)`.
 
 - Both connection sections have a **Test Connection** button that resolves
   credentials, performs a real fetch, and reports pass/fail inline.
@@ -217,6 +223,7 @@ not.** Full detail in `docs/CREDENTIALS.md`.
 |---|---|
 | Refresh interval | 60 s |
 | Menu bar percentage | **Off** (icon only) |
+| Session (5 hr) row | Shown (hide it on a plan with no 5-hour window, e.g. Claude Ultra) |
 | Model-scoped weekly row | Shown |
 | Copilot monitoring | **Off** |
 | Claude credential source | direct: Claude Code sign-in · App Store: import a file |

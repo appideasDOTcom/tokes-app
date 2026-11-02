@@ -128,6 +128,8 @@ final class SettingsInteractionTests: XCTestCase {
         try sut.inspect().find(ViewType.Toggle.self, where: {
             try $0.labelView().text().string().contains("model-specific")
         }).tap()
+        // `index` counts the form's Bool `onChange` modifiers in source order:
+        // 0 copilotEnabled, 1 showScopedWeekly, 2 showSession (SettingsView).
         try sut.inspect().form().callOnChange(oldValue: true, newValue: false, index: 1)
         XCTAssertEqual(UserDefaults.standard.string(forKey: SettingsKeys.menuBarLabel),
                        MenuBarLabel.highest.rawValue)
@@ -141,7 +143,7 @@ final class SettingsInteractionTests: XCTestCase {
             try $0.labelView().text().string().contains("session limit")
         }).tap()
         XCTAssertFalse(UserDefaults.standard.bool(forKey: SettingsKeys.showSession))
-        try sut.inspect().form().callOnChange(oldValue: true, newValue: false, index: 2)
+        try sut.inspect().form().callOnChange(oldValue: true, newValue: false, index: 2)  // see index note above
         XCTAssertEqual(UserDefaults.standard.string(forKey: SettingsKeys.menuBarLabel),
                        MenuBarLabel.highest.rawValue)
     }

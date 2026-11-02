@@ -80,18 +80,25 @@ jobs:
           SHA=$(shasum -a 256 "${files[0]}" | awk '{print $1}')
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="$GITHUB_REF_NAME"
+            TITLE="Tokes ${TAG}"
+            NOTES="Cask sha256: \`${SHA}\`"
             gh release view "$TAG" >/dev/null 2>&1 || \
-              gh release create "$TAG" \
-                --title "Tokes ${TAG}" \
-                --notes "Cask sha256: \`${SHA}\`" || \
+              gh release create "$TAG" --title "$TITLE" --notes "$NOTES" || \
               gh release view "$TAG" >/dev/null
           else
             TAG="build-${{ github.run_number }}"
+            TITLE="Tokes build ${{ github.run_number }}"
+            NOTES="Automated build of ${GITHUB_SHA:0:7} (${GITHUB_REF_NAME}). Ad-hoc signed: Gatekeeper will quarantine it on another machine. sha256: \`${SHA}\`"
             gh release view "$TAG" >/dev/null 2>&1 || \
               gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
-                --title "Tokes build ${{ github.run_number }}" \
-                --notes "Automated build of ${GITHUB_SHA:0:7} (${GITHUB_REF_NAME}). Ad-hoc signed: Gatekeeper will quarantine it on another machine. sha256: \`${SHA}\`" || \
+                --title "$TITLE" --notes "$NOTES" || \
               gh release view "$TAG" >/dev/null
           fi
           gh release upload "$TAG" "${files[@]}" --clobber
+          # The notes carry the sha256 of the asset that is attached *now*. On
+          # the reuse path (release pre-existed, or `create` lost a race) the
+          # upload above replaced the zip but left whatever notes the release
+          # had — for a hand-made release, none with a sha at all — so the
+          # cask step in RELEASING.md would read a missing or stale digest.
+          gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
           echo "Published: $(gh release view "$TAG" --json url --jq .url)"
